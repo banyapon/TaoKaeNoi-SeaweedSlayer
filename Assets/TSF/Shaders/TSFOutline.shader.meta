@@ -1,0 +1,19 @@
+fileFormatVersion: 2
+guid: 76374158b4c4e5744b394e9290aae693
+labels:
+- cellshading
+- cell
+- toon
+- toonshader
+ShaderImporter:
+  defaultTextures: []
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 21288
+  packageName: Toon Shader Free
+  packageVersion: 1.3
+  assetPath: Assets/TSF/Shaders/TSFOutline.shader
+  uploadId: 300558

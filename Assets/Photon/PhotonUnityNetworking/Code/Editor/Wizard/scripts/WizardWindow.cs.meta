@@ -1,0 +1,18 @@
+fileFormatVersion: 2
+guid: d22d423f7d4a0aa40a0ffe79f413aa27
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 119922
+  packageName: PUN 2 - FREE
+  packageVersion: 2.56
+  assetPath: Assets/Photon/PhotonUnityNetworking/Code/Editor/Wizard/scripts/WizardWindow.cs
+  uploadId: 993206

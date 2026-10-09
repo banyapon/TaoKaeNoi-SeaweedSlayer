@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>TaoKaeNoi Seaweed Slayer</title>
+<style>
+@font-face{font-family:Kanit;src:url('kanit.ttf')}@font-face{font-family:Upheaval;src:url('upheavtt.ttf')}
+html,body{margin:0;width:100%;height:100%;background:#0d201e;overflow:hidden;color:#eaf4db;font-family:Kanit,system-ui,sans-serif}
+#unity-canvas{width:100%;height:100%;display:block;touch-action:none}
+#loading{position:fixed;inset:0;display:flex;flex-direction:column;gap:20px;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,#2e6640,#0d201e);pointer-events:none}
+#loading img{width:min(45vw,300px);max-height:30vh;object-fit:contain;filter:drop-shadow(0 10px 25px #0005)}
+#loading strong{font-family:Upheaval,sans-serif;font-size:clamp(20px,4vw,36px);letter-spacing:.08em}
+#fullscreen{position:fixed;right:4px;top:4px;border:1px solid #b5d78355;background:#142b27bb;color:#eaf4db;padding:4px 8px;border-radius:8px;cursor:pointer;font-size:13px}
+body.controller #fullscreen{display:none}
+</style>
+</head>
+<body>
+<canvas id="unity-canvas" tabindex="-1"></canvas>
+<div id="loading"><img src="logo.png" alt="TaoKaeNoi"><strong>SEAWEED SLAYER</strong><span id="progress">กำลังเตรียมสนาม…</span><small>เก็บขนม • ยิงศัตรู • แกล้งเพื่อน</small></div>
+<button id="fullscreen" aria-label="เต็มจอ" title="เต็มจอ">⛶</button>
+<script src="Build/{{{ LOADER_FILENAME }}}"></script>
+<script>
+const canvas=document.querySelector('#unity-canvas');
+const query=new URLSearchParams(location.search);
+const mobileController=query.get('mode')==='controller'||query.has('room')||location.pathname.toLowerCase().includes('/controller');
+if(mobileController)document.body.classList.add('controller');
+createUnityInstance(canvas,{
+dataUrl:'Build/{{{ DATA_FILENAME }}}',frameworkUrl:'Build/{{{ FRAMEWORK_FILENAME }}}',codeUrl:'Build/{{{ CODE_FILENAME }}}',streamingAssetsUrl:'StreamingAssets',
+companyName:{{{ JSON.stringify(COMPANY_NAME) }}},productName:{{{ JSON.stringify(PRODUCT_NAME) }}},productVersion:{{{ JSON.stringify(PRODUCT_VERSION) }}},
+devicePixelRatio:Math.min(window.devicePixelRatio,2)
+},p=>{document.querySelector('#progress').textContent='กำลังโหลด '+Math.round(p*100)+'%';})
+.then(instance=>{window.seaweedGame=instance;document.querySelector('#loading').remove();canvas.focus();document.querySelector('#fullscreen').onclick=()=>{instance.SetFullscreen(1);canvas.focus();};})
+.catch(error=>{document.querySelector('#progress').textContent='โหลดไม่สำเร็จ: '+error;});
+</script>
+</body></html>

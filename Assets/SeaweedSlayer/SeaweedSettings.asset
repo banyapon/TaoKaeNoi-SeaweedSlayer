@@ -1,0 +1,51 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 200b3a0d794916c4084fb7317f0df1e7, type: 3}
+  m_Name: SeaweedSettings
+  m_EditorClassIdentifier: Assembly-CSharp::SeaweedSlayer.SeaweedSettings
+  controllerUrl: https://taokaenoiarena.vercel.app/Controller
+  maximumPlayers: 20
+  roundSeconds: 90
+  titleFont: {fileID: 12800000, guid: 83de4b9c173662e43a2c781b0b21846a, type: 3}
+  uiFont: {fileID: 12800000, guid: 83eb0ebb0cb76304abcee8bf2f5e4692, type: 3}
+  playerOutline: {fileID: 21300000, guid: 085185b08a40a924985bc0e4176edea6, type: 3}
+  snack: {fileID: 21300000, guid: cb899004699b264458a54e87fefdb15f, type: 3}
+  logo: {fileID: 21300000, guid: d01c361a6abbb1e45b3cf451cad45e54, type: 3}
+  joystickPrefab: {fileID: 2929252283123773939, guid: aaa2c939c0359ac4dbce3f49e8b90252, type: 3}
+  playerModel: {fileID: 6614921939276033571, guid: d2848f8735d0bc84eb9530ff4ef59443, type: 3}
+  enemyModel: {fileID: 7973958094451581138, guid: 425faffd2cb5bac4b8c189e85d926e21, type: 3}
+  maximumEnemies: 3
+  enemyScore: 50
+  forestTrees:
+  - {fileID: 2201053080053525970, guid: 0a6a05d60c7a3a242aae59b75241100a, type: 3}
+  - {fileID: 4881509164501497247, guid: d1634e2049161c64c8684593f49fc035, type: 3}
+  - {fileID: 4869491429357030247, guid: f13bc96c3a88b584991a2c5d5a46dbbe, type: 3}
+  waterPrefab: {fileID: 3416523925498993936, guid: 0613eb07ea134bc48aad5fcaeb10c08b, type: 3}
+  groundPrefab: {fileID: 757047000604117970, guid: 13c3c9f9d87fa6b44b57b180153765df, type: 3}
+  grassPrefab: {fileID: 6782630139460101552, guid: 9ed4dca921bddd940bb722f86ccfb78e, type: 3}
+  greenA: {fileID: 2100000, guid: 8f8d07d69e59f7e429a8b06c26869071, type: 2}
+  greenB: {fileID: 2100000, guid: 8e70466d9705d2f44952c22a3a9ad2da, type: 2}
+  wood: {fileID: 2100000, guid: 882e9988843520c4faa3f9b9488769b1, type: 2}
+  water: {fileID: 2100000, guid: 440f881848e3aa74791c43b12059a51d, type: 2}
+  player: {fileID: 2100000, guid: 21ebb9dd5b1ce424792c4d68a02aec65, type: 2}
+  projectile: {fileID: 2100000, guid: 5b8706a982c20da4d97e066328abd5cb, type: 2}
+  palette:
+  - {r: 1, g: 0.37254903, b: 0.4117647, a: 1}
+  - {r: 0.85490197, g: 0.64705884, b: 0.12549019, a: 1}
+  - {r: 0.3882353, g: 0.88235295, b: 0.58431375, a: 1}
+  - {r: 0.21568628, g: 0.4117647, b: 0.9019608, a: 1}
+  - {r: 1, g: 0.90588236, b: 0.39215687, a: 1}
+  - {r: 1, g: 0.49411765, b: 0.74509805, a: 1}
+  - {r: 0.6, g: 0.37254903, b: 0.21568628, a: 1}
+  - {r: 0.627451, g: 0.37254903, b: 0.8627451, a: 1}
+  - {r: 1, g: 0.5686275, b: 0.19607843, a: 1}
+  - {r: 0.30588236, g: 0.79607844, b: 1, a: 1}

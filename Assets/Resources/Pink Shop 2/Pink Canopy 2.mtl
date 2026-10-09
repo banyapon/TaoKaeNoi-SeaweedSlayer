@@ -1,0 +1,48 @@
+newmtl h_kage
+Ka 0.972549 0.972549 0.972549
+Kd 0.7843137 0.7843137 0.7843137
+d 0.2903226
+Tr 0.2903226
+map_Ka h_kage.png
+map_Kd h_kage.png
+map_d h_kage.png
+newmtl msr_pt01
+Ka 0.972549 0.972549 0.972549
+Kd 0.7843137 0.7843137 0.7843137
+d 1
+Tr 1
+map_Ka msr_pt01.png
+map_Kd msr_pt01.png
+map_d msr_pt01.png
+newmtl msr_pt02
+Ka 0.972549 0.972549 0.972549
+Kd 0.7843137 0.7843137 0.7843137
+d 1
+Tr 1
+map_Ka msr_pt02.png
+map_Kd msr_pt02.png
+map_d msr_pt02.png
+newmtl msr_pt04
+Ka 0.972549 0.972549 0.972549
+Kd 0.7843137 0.7843137 0.7843137
+d 1
+Tr 1
+map_Ka msr_pt04.png
+map_Kd msr_pt04.png
+map_d msr_pt04.png
+newmtl msr_pt04w
+Ka 0.972549 0.972549 0.972549
+Kd 0.7843137 0.7843137 0.7843137
+d 1
+Tr 1
+map_Ka msr_pt04w.png
+map_Kd msr_pt04w.png
+map_d msr_pt04w.png
+newmtl msr_pt06w
+Ka 0.972549 0.972549 0.972549
+Kd 0.7843137 0.7843137 0.7843137
+d 1
+Tr 1
+map_Ka msr_pt06w.png
+map_Kd msr_pt06w.png
+map_d msr_pt06w.png
