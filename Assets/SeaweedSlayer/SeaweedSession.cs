@@ -6,6 +6,7 @@ using ExitGames.Client.Photon;
 using Photon.Pun;
 using Photon.Realtime;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using Hashtable = ExitGames.Client.Photon.Hashtable;
 
 namespace SeaweedSlayer
@@ -23,16 +24,25 @@ namespace SeaweedSlayer
         public string RoomCode { get; private set; }
         public string HostUid { get; private set; }
         public string JoinUrl { get; private set; }
-        public bool IsReady => Connected && PhotonNetwork.LocalPlayer.CustomProperties["ready"] is bool r && r;
+        public bool IsReady => Connected && PhotonNetwork.LocalPlayer.CustomProperties["ready"] is bool r && r &&
+            PhotonNetwork.LocalPlayer.CustomProperties["readyRound"] is int round && round == ReadyRound;
+        public bool CanJoinRound => Phase == "Lobby" || Phase == "Countdown";
         [SerializeField] SeaweedArena arena;
         [SerializeField] SeaweedUI pcUI, controllerUI;
         public SeaweedArena Arena { get; private set; }
         public SeaweedUI UI { get; private set; }
         public readonly Dictionary<int, SeaweedAvatar> Players = new Dictionary<int, SeaweedAvatar>();
-        const byte MoveCode = 31, ThrowCode = 32;
+        const byte MoveCode = 31, ThrowCode = 32, ExitResultsCode = 33;
+        readonly HashSet<int> resultPlayers = new HashSet<int>();
+        readonly HashSet<int> exitedResults = new HashSet<int>();
+        int roundId;
+        public bool HasExitedResults { get; private set; }
+        public int ResultsWaiting => resultPlayers.Count - exitedResults.Count;
         int createAttempts, joinRetries;
         bool hostLost, rejoining, solo, retryJoin;
         float phaseEnds, nextPublish, nextReconnect, retryJoinAt;
+        AudioSource musicSource, effectsSource;
+        AudioClip shotClip, hurtClip, itemClip, countClip, startClip;
         public float Remaining => Mathf.Max(0, phaseEnds - Time.time);
 
         void Start()
@@ -47,10 +57,11 @@ namespace SeaweedSlayer
                  Application.absoluteURL.Split('?')[0].TrimEnd('/').EndsWith("/Controller", StringComparison.OrdinalIgnoreCase))) IsController = true;
             if (arena == null || pcUI == null || controllerUI == null)
                 throw new InvalidOperationException("Game scene needs authored Arena, PC UI and Controller UI references.");
+            if (!IsController) InitializeAudio();
             arena.gameObject.SetActive(!IsController);
             pcUI.gameObject.SetActive(!IsController); controllerUI.gameObject.SetActive(IsController);
             UI = IsController ? controllerUI : pcUI; UI.Initialize(this);
-            if (!IsController) { Arena = arena; Arena.Initialize(this); }
+            if (!IsController) { Arena = arena; Arena.Initialize(this); Arena.gameObject.SetActive(false); }
             PhotonNetwork.AutomaticallySyncScene = false;
             PhotonNetwork.GameVersion = "seaweed-slayer-v1";
             PhotonNetwork.KeepAliveInBackground = 60;
@@ -71,6 +82,36 @@ namespace SeaweedSlayer
             else { HostUid = Guid.NewGuid().ToString("N"); PhotonNetwork.AuthValues = new AuthenticationValues(HostUid); }
             Connect();
         }
+        void InitializeAudio()
+        {
+            shotClip = Resources.Load<AudioClip>("sounds/shot");
+            hurtClip = Resources.Load<AudioClip>("sounds/hurt");
+            itemClip = Resources.Load<AudioClip>("sounds/item");
+            countClip = Resources.Load<AudioClip>("sounds/count");
+            startClip = Resources.Load<AudioClip>("sounds/digit");
+            musicSource = gameObject.AddComponent<AudioSource>();
+            musicSource.playOnAwake = false;
+            musicSource.spatialBlend = 0;
+            musicSource.loop = true;
+            musicSource.volume = .35f;
+            musicSource.clip = Resources.Load<AudioClip>("sounds/BGM");
+            if (musicSource.clip != null) musicSource.Play();
+
+            // Keep effects separate so overlapping shots and hits never interrupt the music.
+            effectsSource = gameObject.AddComponent<AudioSource>();
+            effectsSource.playOnAwake = false;
+            effectsSource.spatialBlend = 0;
+        }
+        public void PlayShotSound()
+        { if (effectsSource != null && shotClip != null) effectsSource.PlayOneShot(shotClip); }
+        public void PlayHurtSound()
+        { if (effectsSource != null && hurtClip != null) effectsSource.PlayOneShot(hurtClip); }
+        public void PlayItemSound()
+        { if (effectsSource != null && itemClip != null) effectsSource.PlayOneShot(itemClip); }
+        public void PlayCountSound()
+        { if (effectsSource != null && countClip != null) effectsSource.PlayOneShot(countClip); }
+        public void PlayStartSound()
+        { if (effectsSource != null && startClip != null) effectsSource.PlayOneShot(startClip); }
         void Connect()
         {
             var app = PhotonNetwork.PhotonServerSettings.AppSettings.CopyTo(new AppSettings());
@@ -143,7 +184,7 @@ namespace SeaweedSlayer
         }
         public void Register(string name, int color)
         {
-            if (!IsController || !Connected || Phase != "Lobby") return;
+            if (!IsController || !Connected || !CanJoinRound) return;
             name = (name ?? "").Trim(); if (name.Length == 0) { SetStatus("กรุณาใส่ชื่อผู้เล่น"); return; }
             name = name.Substring(0, Math.Min(20, name.Length)); color = Mathf.Clamp(color, 0, settings.palette.Length - 1);
             PhotonNetwork.NickName = name;
@@ -152,8 +193,24 @@ namespace SeaweedSlayer
         }
         public void Ready()
         {
-            if (IsController && Connected && Phase == "Lobby")
-                PhotonNetwork.LocalPlayer.SetCustomProperties(new Hashtable { { "ready", !IsReady } });
+            if (IsController && Connected && CanJoinRound)
+                PhotonNetwork.LocalPlayer.SetCustomProperties(new Hashtable { { "ready", !IsReady }, { "readyRound", ReadyRound } });
+        }
+        public int ReadyRound => IsController && Connected && PhotonNetwork.CurrentRoom.CustomProperties["round"] is int value ? value : roundId;
+        public void ExitResults()
+        {
+            if (!IsController || !Connected || Phase != "Results" || HasExitedResults) return;
+            HasExitedResults = PhotonNetwork.RaiseEvent(ExitResultsCode, ReadyRound,
+                new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient }, SendOptions.SendReliable);
+            UI.Refresh();
+        }
+        public void AdminReturnToTitle()
+        {
+            if (!IsController && Phase == "Results") ReturnLobby();
+        }
+        void CheckResultsExit()
+        {
+            if (Phase == "Results" && !solo && resultPlayers.All(id => exitedResults.Contains(id))) ReturnLobby();
         }
         public void Move(Vector2 direction)
         {
@@ -161,31 +218,35 @@ namespace SeaweedSlayer
             direction = Vector2.ClampMagnitude(direction, 1);
             PhotonNetwork.RaiseEvent(MoveCode, new object[] { direction.x, direction.y }, new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient }, SendOptions.SendUnreliable);
         }
-        public void Throw()
+        public void Throw(Vector2 direction)
         {
             if (IsController && Connected && Phase == "Playing")
-                PhotonNetwork.RaiseEvent(ThrowCode, null, new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient }, SendOptions.SendReliable);
+                PhotonNetwork.RaiseEvent(ThrowCode, new object[] { direction.x, direction.y }, new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient }, SendOptions.SendReliable);
         }
         public void OnEvent(EventData e)
         {
+            if (!IsController && Phase == "Results" && e.Code == ExitResultsCode && e.CustomData is int round && round == roundId && resultPlayers.Contains(e.Sender))
+            { exitedResults.Add(e.Sender); CheckResultsExit(); UI.Refresh(); return; }
             if (IsController || Phase != "Playing" || !Players.TryGetValue(e.Sender, out var avatar) || !avatar.gameObject.activeSelf) return;
             if (e.Code == MoveCode && e.CustomData is object[] a && a.Length == 2 && a[0] is float x && a[1] is float y && float.IsFinite(x) && float.IsFinite(y))
                 avatar.SetInput(Vector2.ClampMagnitude(new Vector2(x, y), 1));
-            else if (e.Code == ThrowCode) avatar.Throw();
+            else if (e.Code == ThrowCode && e.CustomData is object[] aim && aim.Length == 2 && aim[0] is float ax && aim[1] is float ay && float.IsFinite(ax) && float.IsFinite(ay))
+            { avatar.SetInput(Vector2.ClampMagnitude(new Vector2(ax, ay), 1)); avatar.Throw(); }
         }
         public override void OnPlayerEnteredRoom(Player p) { if (!IsController) { SyncPlayers(); CheckReady(); } }
         public override void OnPlayerPropertiesUpdate(Player p, Hashtable changed)
         { if (!IsController) { SyncPlayers(); CheckReady(); } UI.Refresh(); }
         public override void OnRoomPropertiesUpdate(Hashtable changed)
         {
-            if (IsController) { Phase = PhotonNetwork.CurrentRoom.CustomProperties["phase"] as string ?? "Lobby"; UI.Refresh(); }
+            if (IsController) { Phase = PhotonNetwork.CurrentRoom.CustomProperties["phase"] as string ?? "Lobby"; if (Phase != "Results") HasExitedResults = false; UI.Refresh(); }
         }
         public override void OnPlayerLeftRoom(Player p)
         {
             if (!IsController && Players.TryGetValue(p.ActorNumber, out var avatar))
             {
                 avatar.SetInput(Vector2.zero); avatar.gameObject.SetActive(false);
-                if (!p.IsInactive && Phase == "Lobby") { Arena.ReleaseAvatar(avatar); Players.Remove(p.ActorNumber); }
+                if (!p.IsInactive && CanJoinRound) { Arena.ReleaseAvatar(avatar); Players.Remove(p.ActorNumber); }
+                if (Phase == "Results" && resultPlayers.Contains(p.ActorNumber)) { exitedResults.Add(p.ActorNumber); CheckResultsExit(); }
                 CheckReady(); UI.Refresh();
             }
         }
@@ -200,7 +261,7 @@ namespace SeaweedSlayer
                     if (avatar == null) continue;
                     Players.Add(peer.ActorNumber, avatar);
                 }
-                if (Phase == "Lobby") avatar.SetProfile(peer.NickName, settings.palette[color]);
+                if (CanJoinRound) avatar.SetProfile(peer.NickName, settings.palette[color]);
                 avatar.gameObject.SetActive(!peer.IsInactive);
             }
             UI.Refresh();
@@ -209,9 +270,9 @@ namespace SeaweedSlayer
         {
             if (IsController || solo || (Phase != "Lobby" && Phase != "Countdown")) return;
             var peers = PhotonNetwork.PlayerList.Where(p => !p.IsLocal).ToArray();
-            bool all = peers.Length > 0 && peers.All(p => !p.IsInactive && Players.ContainsKey(p.ActorNumber) && p.CustomProperties["ready"] is bool r && r);
-            if (all && Phase == "Lobby") { Phase = "Countdown"; phaseEnds = Time.time + 3; PhotonNetwork.CurrentRoom.IsOpen = false; Publish(); }
-            else if (!all && Phase == "Countdown") { Phase = "Lobby"; PhotonNetwork.CurrentRoom.IsOpen = true; Publish(); }
+            bool anyReady = peers.Any(p => !p.IsInactive && Players.ContainsKey(p.ActorNumber) && p.CustomProperties["ready"] is bool r && r && p.CustomProperties["readyRound"] is int round && round == roundId);
+            if (anyReady && Phase == "Lobby") { Phase = "Countdown"; phaseEnds = Time.time + 10; PhotonNetwork.CurrentRoom.IsOpen = true; Publish(); }
+            else if (!anyReady && Phase == "Countdown") { Phase = "Lobby"; PhotonNetwork.CurrentRoom.IsOpen = true; Publish(); }
             UI.Refresh();
         }
         public void PlaySolo()
@@ -221,7 +282,7 @@ namespace SeaweedSlayer
             if (avatar == null) return;
             solo = true; Players[0] = avatar;
             if (PhotonNetwork.InRoom) PhotonNetwork.CurrentRoom.IsOpen = false;
-            Phase = "Countdown"; phaseEnds = Time.time + 3; Publish(); UI.Refresh();
+            Phase = "Countdown"; phaseEnds = Time.time + 10; Publish(); UI.Refresh();
         }
         void Update()
         {
@@ -236,26 +297,32 @@ namespace SeaweedSlayer
             }
             // Photon property echoes can arrive after a rapid Ready/cancel/Ready sequence.
             // Keep the room's admission flag consistent with the current host phase.
-            if (PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom.IsOpen != (Phase == "Lobby" && !solo))
-                PhotonNetwork.CurrentRoom.IsOpen = Phase == "Lobby" && !solo;
+            if (PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom.IsOpen != (CanJoinRound && !solo))
+                PhotonNetwork.CurrentRoom.IsOpen = CanJoinRound && !solo;
+            if (Phase == "Results" && Keyboard.current != null &&
+                (Keyboard.current.enterKey.wasPressedThisFrame || Keyboard.current.numpadEnterKey.wasPressedThisFrame)) AdminReturnToTitle();
             if (Phase == "Countdown" && Remaining == 0)
             {
+                if (PhotonNetwork.InRoom) PhotonNetwork.CurrentRoom.IsOpen = false;
+                Arena.gameObject.SetActive(true);
                 Phase = "Playing"; phaseEnds = Time.time + settings.roundSeconds; Arena.NewRound();
                 foreach (var p in Players.Values) { p.Score = 0; p.ResetAt(Arena.FreePosition()); }
                 Publish(); UI.Refresh();
             }
             else if (Phase == "Playing" && Remaining == 0)
             {
-                Phase = "Results"; phaseEnds = Time.time + 10; Arena.ClearProjectiles(); Arena.ClearEnemies();
+                Phase = "Results"; phaseEnds = 0; Arena.ClearProjectiles(); Arena.ClearEnemies(); Arena.ClearSnacks();
+                resultPlayers.Clear(); exitedResults.Clear();
+                foreach (var peer in PhotonNetwork.PlayerList.Where(p => !p.IsLocal && !p.IsInactive && Players.ContainsKey(p.ActorNumber))) resultPlayers.Add(peer.ActorNumber);
                 foreach (var p in Players.Values) p.SetInput(Vector2.zero);
-                Publish(); UI.Refresh();
+                Publish(); UI.Refresh(); CheckResultsExit();
             }
-            else if (Phase == "Results" && Remaining == 0) ReturnLobby();
             if (Time.time > nextPublish) { nextPublish = Time.time + 1; Publish(); UI.Refresh(); }
         }
         void ReturnLobby()
         {
-            Phase = "Lobby"; solo = false;
+            Phase = "Lobby"; solo = false; phaseEnds = 0; roundId++;
+            resultPlayers.Clear(); exitedResults.Clear();
             if (Players.TryGetValue(0, out var local)) { Arena.ReleaseAvatar(local); Players.Remove(0); }
             if (PhotonNetwork.InRoom)
             {
@@ -264,14 +331,16 @@ namespace SeaweedSlayer
                 { Arena.ReleaseAvatar(Players[actor]); Players.Remove(actor); }
                 foreach (var p in PhotonNetwork.PlayerList.Where(p => !p.IsLocal)) p.SetCustomProperties(new Hashtable { { "ready", false } });
             }
-            Arena.ClearSnacks(); Arena.ClearEnemies(); Publish(); UI.Refresh();
+            Arena.ClearSnacks(); Arena.ClearEnemies(); Arena.ClearProjectiles(); Arena.ClearFeedback();
+            foreach (var avatar in Players.Values) avatar.ResetAt(Arena.FreePosition());
+            Arena.gameObject.SetActive(false); Publish(); UI.Refresh();
         }
         void Publish()
         {
             if (!PhotonNetwork.InRoom || IsController) return;
             var ranking = Players.Values.OrderByDescending(p => p.Score).ThenBy(p => p.Actor).ToArray();
             PhotonNetwork.CurrentRoom.SetCustomProperties(new Hashtable {
-                { "phase", Phase }, { "seconds", Mathf.CeilToInt(Remaining) },
+                { "phase", Phase }, { "round", roundId }, { "seconds", Mathf.CeilToInt(Remaining) },
                 { "ranking", string.Join("\n", ranking.Select((p, i) => (i + 1) + ". " + p.DisplayName + "  " + p.Score)) },
                 { "rankNames", ranking.Select(p => p.DisplayName).ToArray() },
                 { "rankScores", ranking.Select(p => p.Score).ToArray() },
@@ -287,7 +356,7 @@ namespace SeaweedSlayer
             foreach (var p in Players.Values) p.SetInput(Vector2.zero);
             rejoining = IsController && !hostLost && !string.IsNullOrEmpty(RoomCode);
             nextReconnect = Time.time + 3;
-            if (!IsController) { Phase = "Lobby"; solo = false; foreach (var p in Players.Values) Arena.ReleaseAvatar(p); Players.Clear(); Arena.ClearSnacks(); Arena.ClearProjectiles(); Arena.ClearEnemies(); }
+            if (!IsController) { Phase = "Lobby"; solo = false; resultPlayers.Clear(); exitedResults.Clear(); foreach (var p in Players.Values) Arena.ReleaseAvatar(p); Players.Clear(); Arena.ClearSnacks(); Arena.ClearProjectiles(); Arena.ClearEnemies(); Arena.ClearFeedback(); Arena.gameObject.SetActive(false); }
             SetStatus("การเชื่อมต่อขาด: " + cause + (rejoining ? " กำลังเชื่อมต่อใหม่..." : ""));
         }
     }

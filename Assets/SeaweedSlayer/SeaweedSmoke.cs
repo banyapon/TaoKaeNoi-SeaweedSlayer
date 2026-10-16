@@ -29,7 +29,7 @@ namespace SeaweedSlayer
             if (Application.platform == RuntimePlatform.WebGLPlayer) return;
             var args = Environment.GetCommandLineArgs();
             if (args.Contains("-seaweed-controller-preview")) FindAnyObjectByType<SeaweedSession>().editorController = true;
-            if (args.Any(a => a == "-seaweed-smoke" || a == "-seaweed-preview" || a == "-seaweed-controller-preview" || a == "-seaweed-lobby-preview"))
+            if (args.Any(a => a == "-seaweed-smoke" || a == "-seaweed-preview" || a == "-seaweed-results-preview" || a == "-seaweed-controller-preview" || a == "-seaweed-lobby-preview"))
             {
                 var smoke = new GameObject("Integration smoke").AddComponent<SeaweedSmoke>();
                 var camera = Camera.main;
@@ -53,20 +53,27 @@ namespace SeaweedSlayer
         {
             deadline = Time.realtimeSinceStartup + 180;
             session = FindAnyObjectByType<SeaweedSession>();
+            bool resultsPreview = Environment.GetCommandLineArgs().Contains("-seaweed-results-preview");
             bool mobilePreview = Environment.GetCommandLineArgs().Contains("-seaweed-controller-preview");
             bool lobbyPreview = Environment.GetCommandLineArgs().Contains("-seaweed-lobby-preview");
-            if (Environment.GetCommandLineArgs().Contains("-seaweed-preview") || mobilePreview || lobbyPreview)
+            if (Environment.GetCommandLineArgs().Contains("-seaweed-preview") || resultsPreview || mobilePreview || lobbyPreview)
             {
                 yield return new WaitUntil(() => session.UI != null);
                 if (!mobilePreview && !lobbyPreview)
                 {
-                    session.PlaySolo(); yield return new WaitForSeconds(4);
+                    session.PlaySolo(); yield return new WaitUntil(() => session.Phase == "Playing");
                     int previewPlayers = Environment.GetCommandLineArgs().Contains("-seaweed-full-roster") ? 19 : 5;
                     for (int i = 1; i <= previewPlayers; i++) session.Players[100 + i] = session.Arena.CreateAvatar(100 + i, "Player " + i, session.settings.palette[i % session.settings.palette.Length]);
                 }
+                if (resultsPreview)
+                {
+                    foreach (var avatar in session.Players.Values) avatar.Score = (avatar.Actor + 1) * 25;
+                    typeof(SeaweedSession).GetField("phaseEnds", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).SetValue(session, Time.time);
+                    yield return new WaitUntil(() => session.Phase == "Results");
+                }
                 yield return new WaitForSeconds(1);
                 session.UI.Refresh();
-                string output = System.IO.Path.Combine(Application.dataPath, mobilePreview ? "../ControllerPreview.png" : lobbyPreview ? "../LobbyPreview.png" : "../Preview.png");
+                string output = System.IO.Path.Combine(Application.dataPath, resultsPreview ? "../ResultsPreview.png" : mobilePreview ? "../ControllerPreview.png" : lobbyPreview ? "../LobbyPreview.png" : "../Preview.png");
                 // Render offscreen so the preview also works when the Windows process is hidden.
                 int width = mobilePreview ? 720 : 1280, height = mobilePreview ? 1280 : 720;
                 var camera = Camera.main; var target = new RenderTexture(width, height, 24);
@@ -82,6 +89,7 @@ namespace SeaweedSlayer
             }
             yield return new WaitUntil(() => session != null && session.Connected);
             CheckCamera();
+            CheckMobilePhases();
             Check(PhotonNetwork.CurrentRoom.MaxPlayers == 21, "20 controllers plus PC host capacity");
             // Two actual network peers exercise the protocol; the room capacity is independently asserted.
             for (int i = 0; i < 2; i++)
@@ -94,30 +102,54 @@ namespace SeaweedSlayer
                 clients.Add(c); Check(c.ConnectUsingSettings(app), "connect peer " + i);
             }
             yield return new WaitUntil(() => clients.All(c => c.InRoom));
-            foreach (var c in clients) c.LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "registered", true }, { "color", 1 }, { "ready", false } });
-            yield return new WaitUntil(() => session.Players.Count == 2);
+            clients[0].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "registered", true }, { "color", 1 }, { "ready", false } });
+            yield return new WaitUntil(() => session.Players.Count == 1);
             Check(session.Phase == "Lobby", "join alone does not hide QR/start");
-            clients[0].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", true } });
-            yield return new WaitForSeconds(1);
-            Check(session.Phase == "Lobby", "wait for all controllers Ready");
-            clients[1].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", true } });
+            clients[0].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", true }, { "readyRound", session.ReadyRound } });
             yield return new WaitUntil(() => session.Phase == "Countdown");
+            Check(session.Remaining > 9 && session.Remaining <= 10, "first Ready starts ten-second countdown");
+            Check(PhotonNetwork.CurrentRoom.IsOpen, "room stays open during countdown");
+            float originalStartTime = Time.time + session.Remaining;
+            yield return new WaitForSeconds(1);
+            clients[1].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "registered", true }, { "color", 2 }, { "ready", true }, { "readyRound", session.ReadyRound } });
+            yield return new WaitUntil(() => session.Players.Count == 2);
+            Check(session.Phase == "Countdown" && Mathf.Abs(Time.time + session.Remaining - originalStartTime) < .1f, "late registration joins without resetting countdown");
             clients[1].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", false } });
+            yield return new WaitForSeconds(.5f);
+            Check(session.Phase == "Countdown", "one unready peer does not cancel another ready peer");
+            clients[0].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", false } });
             yield return new WaitUntil(() => session.Phase == "Lobby");
-            Check(PhotonNetwork.CurrentRoom.IsOpen, "cancel Ready reopens room");
-            clients[1].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", true } });
+            Check(PhotonNetwork.CurrentRoom.IsOpen, "all peers cancel Ready returns to open lobby");
+            clients[0].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", true }, { "readyRound", session.ReadyRound } });
+            clients[1].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", true }, { "readyRound", session.ReadyRound } });
             yield return new WaitUntil(() => session.Phase == "Playing");
             Check(!PhotonNetwork.CurrentRoom.IsOpen, "lock joining during round");
             var a = session.Players[clients[0].LocalPlayer.ActorNumber];
             var b = session.Players[clients[1].LocalPlayer.ActorNumber];
             a.ResetAt(new Vector3(0, .05f, -2)); b.ResetAt(new Vector3(0, .05f, 2));
             Check(clients[0].OpRaiseEvent(31, new object[] { 1f, 0f }, new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient }, SendOptions.SendReliable), "send movement event");
-            yield return new WaitUntil(() => a.transform.position.x > .1f);
+            float movementDeadline = Time.realtimeSinceStartup + 5;
+            while (a.transform.position.x <= .1f && Time.realtimeSinceStartup < movementDeadline)
+            {
+                // Real controllers continuously publish while the stick is held.
+                clients[0].OpRaiseEvent(31, new object[] { 1f, 0f }, new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient }, SendOptions.SendReliable);
+                yield return new WaitForSeconds(.05f);
+            }
+            if (a.transform.position.x <= .1f)
+            {
+                var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                Debug.Log("SEAWEED_MOVEMENT_DIAGNOSTIC: position=" + a.transform.position + " input=" + typeof(SeaweedAvatar).GetField("input", flags).GetValue(a) + " active=" + a.gameObject.activeInHierarchy + " body=" + a.GetComponent<CharacterController>().enabled + " phase=" + session.Phase + " stunned=" + a.Stunned);
+                foreach (var collider in Physics.OverlapSphere(a.transform.position + Vector3.up * .8f, 1)) Debug.Log("SEAWEED_NEARBY: " + collider.name + " bounds=" + collider.bounds);
+            }
             Check(a.transform.position.x > .1f, "controller input moves PC avatar");
             yield return new WaitForSeconds(.6f);
             var stopped = a.transform.position;
             yield return new WaitForSeconds(.3f);
             Check(Vector3.Distance(stopped, a.transform.position) < .05f, "stale input stops avatar");
+            var aimPosition = a.transform.position;
+            a.SetInput(new Vector2(0, .08f)); yield return null;
+            Check(Vector3.Distance(aimPosition, a.transform.position) < .05f, "small joystick nudge aims without walking");
+            Check((Vector3)typeof(SeaweedAvatar).GetField("facing", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(a) == Vector3.forward, "small joystick nudge turns immediately");
             b.ResetAt(new Vector3(0, .05f, 2));
             session.Arena.SpawnCube(a, (b.transform.position - a.transform.position).normalized);
             yield return new WaitUntil(() => b.Stunned);
@@ -128,9 +160,9 @@ namespace SeaweedSlayer
             yield return new WaitForSeconds(.3f);
             Check(!b.Stunned, "stun expires");
             var snack = FindAnyObjectByType<SeaweedSnack>();
-            int oldScore = a.Score; a.ResetAt(snack.transform.position);
+            int oldScore = a.Score, itemPoints = snack.Points; a.ResetAt(snack.transform.position);
             yield return new WaitForSeconds(.15f);
-            Check(a.Score >= oldScore + 25, "snack scores 25 points");
+            Check(a.Score >= oldScore + itemPoints && !snack.gameObject.activeSelf, "snack awards its item points once");
             session.Arena.ClearEnemies(); yield return null;
             a.ResetAt(new Vector3(0, .05f, -2)); b.ResetAt(new Vector3(8, .05f, 0));
             var enemy = session.Arena.SpawnEnemy(); Check(enemy != null, "enemy.glb spawns");
@@ -149,7 +181,7 @@ namespace SeaweedSlayer
             session.Arena.ClearEnemies(); yield return null;
             for (int i = 0; i < 8; i++) session.Arena.SpawnEnemy();
             Check(FindObjectsByType<SeaweedEnemy>(FindObjectsSortMode.None).Length <= session.settings.maximumEnemies, "enemy population stays capped");
-            Check(session.Arena.GetComponentsInChildren<Transform>(true).Length == authoredWorldCount, "gameplay reuses authored hierarchy without constructing or destroying elements");
+            Check(session.Arena.GetComponentsInChildren<Transform>(true).Count(t => t.GetComponentInParent<SeaweedFeedback>() == null) == authoredWorldCount, "gameplay reuses authored hierarchy apart from temporary score/particle feedback");
             CheckCamera();
             session.Arena.ClearEnemies();
 
@@ -167,12 +199,73 @@ namespace SeaweedSlayer
             typeof(SeaweedSession).GetField("phaseEnds", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).SetValue(session, Time.time + .1f);
             yield return new WaitUntil(() => session.Phase == "Results");
             Check(PhotonNetwork.CurrentRoom.Name == session.RoomCode, "results keep the same room");
+            CheckUIPhase("Results");
+            yield return new WaitForSeconds(11);
+            Check(session.Phase == "Results", "results remain visible after the old ten-second timeout");
+            clients[0].OpRaiseEvent(33, session.ReadyRound, new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient }, SendOptions.SendReliable);
+            yield return new WaitForSeconds(.5f);
+            Check(session.Phase == "Results" && session.ResultsWaiting == 1, "one player exits but results wait for the other");
+            clients[0].OpRaiseEvent(33, session.ReadyRound, new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient }, SendOptions.SendReliable);
+            yield return new WaitForSeconds(.3f);
+            Check(session.ResultsWaiting == 1, "duplicate exit does not count twice");
+            clients[1].OpRaiseEvent(33, session.ReadyRound, new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient }, SendOptions.SendReliable);
             yield return new WaitUntil(() => session.Phase == "Lobby");
+            CheckUIPhase("Lobby");
             yield return new WaitForSeconds(.5f);
             Check(PhotonNetwork.CurrentRoom.IsOpen && clients.All(c => !(c.LocalPlayer.CustomProperties["ready"] is bool r) || !r), "next round reopens room and resets Ready");
+            for (int round = 2; round <= 3; round++)
+            {
+                foreach (var client in clients) client.LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", true }, { "readyRound", session.ReadyRound } });
+                yield return new WaitUntil(() => session.Phase == "Countdown"); CheckUIPhase("Countdown");
+                yield return new WaitUntil(() => session.Phase == "Playing"); CheckUIPhase("Playing");
+                Check(session.Players.Values.All(p => p.Score == 0 && !p.Stunned), "round " + round + " resets scores and stun");
+                typeof(SeaweedSession).GetField("phaseEnds", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).SetValue(session, Time.time + .1f);
+                yield return new WaitUntil(() => session.Phase == "Results"); CheckUIPhase("Results");
+                if (round == 3)
+                {
+                    var keyboard = UnityEngine.InputSystem.Keyboard.current ?? UnityEngine.InputSystem.InputSystem.AddDevice<UnityEngine.InputSystem.Keyboard>();
+                    UnityEngine.InputSystem.InputSystem.QueueStateEvent(keyboard, new UnityEngine.InputSystem.LowLevel.KeyboardState(UnityEngine.InputSystem.Key.Enter));
+                    yield return new WaitUntil(() => session.Phase == "Lobby");
+                    UnityEngine.InputSystem.InputSystem.QueueStateEvent(keyboard, new UnityEngine.InputSystem.LowLevel.KeyboardState());
+                }
+                else session.AdminReturnToTitle();
+                CheckUIPhase("Lobby");
+                yield return new WaitForSeconds(.5f);
+                Check(session.Phase == "Lobby", "admin return stays on title without old Ready restarting countdown");
+            }
             Debug.Log("SEAWEED_NETWORK_SMOKE_SUCCESS"); finished = true;
             foreach (var c in clients) c.Disconnect(); PhotonNetwork.Disconnect();
             yield return new WaitForSeconds(.5f); Application.Quit(0);
+        }
+        void CheckMobilePhases()
+        {
+            var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+            var go = new GameObject("Smoke controller session"); go.SetActive(false);
+            var mobileSession = go.AddComponent<SeaweedSession>(); mobileSession.settings = session.settings;
+            typeof(SeaweedSession).GetField("<IsController>k__BackingField", flags).SetValue(mobileSession, true);
+            typeof(SeaweedSession).GetField("hostLost", flags).SetValue(mobileSession, true);
+            var ui = (SeaweedUI)typeof(SeaweedSession).GetField("controllerUI", flags).GetValue(session);
+            ui.Initialize(mobileSession);
+            typeof(SeaweedSession).GetField("hostLost", flags).SetValue(mobileSession, false);
+            RectTransform Panel(string name) => (RectTransform)typeof(SeaweedUI).GetField(name, flags).GetValue(ui);
+            for (int round = 1; round <= 3; round++)
+                foreach (var phase in new[] { "Lobby", "Countdown", "Playing", "Results" })
+                {
+                    typeof(SeaweedSession).GetField("<Phase>k__BackingField", flags).SetValue(mobileSession, phase); ui.Refresh();
+                    var input = (UnityEngine.UI.InputField)typeof(SeaweedUI).GetField("nameInput", flags).GetValue(ui);
+                    Check(input.gameObject.activeSelf == (phase == "Lobby" || phase == "Countdown"), "mobile round " + round + " " + phase + " profile visibility");
+                    Check(Panel("play").gameObject.activeSelf == (phase == "Playing"), "mobile round " + round + " " + phase + " controls visibility");
+                    Check(Panel("results").gameObject.activeSelf == (phase == "Results"), "mobile round " + round + " " + phase + " results visibility");
+                }
+            Destroy(go);
+        }
+        void CheckUIPhase(string phase)
+        {
+            session.UI.Refresh();
+            RectTransform Panel(string name) => (RectTransform)typeof(SeaweedUI).GetField(name, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(session.UI);
+            Check(Panel("lobby").gameObject.activeSelf == (phase == "Lobby"), phase + " has exclusive title visibility");
+            Check(Panel("results").gameObject.activeSelf == (phase == "Results"), phase + " has exclusive results visibility");
+            Check(session.Arena.gameObject.activeSelf == (phase == "Playing" || phase == "Results"), phase + " has correct arena visibility");
         }
         void Check(bool condition, string message) { if (!condition) Fail(message); else Debug.Log("SEAWEED_CHECK_PASS: " + message); }
         void CheckCamera()

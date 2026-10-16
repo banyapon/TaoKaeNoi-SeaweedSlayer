@@ -8,7 +8,9 @@ namespace SeaweedSlayer.Editor
         SeaweedUI target;
         RectTransform root, lobby, results, controller, play;
         Text status, title, roster, timer, readyText, hint, profilePreview;
+        Text countdown;
         Image qr;
+        Image countdownQR;
         InputField nameInput;
         Button ready, throwButton;
         Button[] colors;
@@ -117,6 +119,19 @@ namespace SeaweedSlayer.Editor
             Button(lobby, "Solo", "เล่นคนเดียว (WASD + SPACE)", new Vector2(.04f, .005f), new Vector2(.96f, .095f), target.PlaySolo);
             results = Panel(root, "Unused result container", Vector2.zero, Vector2.zero, Color.clear);
             rankingRows = Rows(results, .05f, .87f, 19); results.gameObject.SetActive(false);
+            countdown = Text(root, "Big countdown", "10", new Vector2(.3f, .2f), new Vector2(.7f, .8f), 180, true);
+            countdown.fontStyle = FontStyle.Bold;
+            countdown.resizeTextForBestFit = true; countdown.resizeTextMinSize = 60; countdown.resizeTextMaxSize = 180;
+            var outline = countdown.gameObject.AddComponent<Outline>();
+            outline.effectColor = Color.black; outline.effectDistance = new Vector2(4, -4);
+            countdown.gameObject.SetActive(false);
+            var countdownImage = Panel(root, "Countdown QR", Vector2.one * .5f, Vector2.one * .5f, Color.white);
+            countdownImage.pivot = Vector2.one * .5f;
+            countdownImage.anchoredPosition = new Vector2(0, -195);
+            countdownImage.sizeDelta = Vector2.one * 180;
+            countdownQR = countdownImage.GetComponent<Image>();
+            countdownQR.preserveAspect = true; countdownQR.raycastTarget = false;
+            countdownImage.gameObject.SetActive(false);
         }
         public static string RankLabel(int rank) => rank == 1 ? "1st" : rank == 2 ? "2nd" : rank == 3 ? "3rd" : rank + "th";
         Text[] Rows(Transform parent, float bottom, float top, int size)

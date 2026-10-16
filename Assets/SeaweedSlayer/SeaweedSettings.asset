@@ -20,6 +20,10 @@ MonoBehaviour:
   playerOutline: {fileID: 21300000, guid: 085185b08a40a924985bc0e4176edea6, type: 3}
   snack: {fileID: 21300000, guid: cb899004699b264458a54e87fefdb15f, type: 3}
   logo: {fileID: 21300000, guid: d01c361a6abbb1e45b3cf451cad45e54, type: 3}
+  itemSize: 1.5
+  initialItems: 6
+  maximumItems: 10
+  itemSpawnSeconds: {x: 3, y: 5}
   joystickPrefab: {fileID: 2929252283123773939, guid: aaa2c939c0359ac4dbce3f49e8b90252, type: 3}
   playerModel: {fileID: 6614921939276033571, guid: d2848f8735d0bc84eb9530ff4ef59443, type: 3}
   enemyModel: {fileID: 7973958094451581138, guid: 425faffd2cb5bac4b8c189e85d926e21, type: 3}

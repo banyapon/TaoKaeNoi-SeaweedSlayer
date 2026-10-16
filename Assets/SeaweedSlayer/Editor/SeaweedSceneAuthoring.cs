@@ -1,4 +1,4 @@
-using System.Linq;
+﻿using System.Linq;
 using System.Reflection;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -156,6 +156,7 @@ namespace SeaweedSlayer.Editor
             nameplate.localPosition = Vector3.up * 2.3f; label.text = "Player";
             Set(component, "body", body); Set(component, "visual", visual); Set(component, "renderers", renderers);
             Set(component, "nameplate", nameplate); Set(component, "label", label); Set(component, "outline", outline); Set(component, "animationPlayer", animationPlayer);
+            component.ConfigureAimIndicators();
             return Save(gameObject, "Arena Player");
         }
         GameObject BakeEnemy()
@@ -195,7 +196,7 @@ namespace SeaweedSlayer.Editor
             var go = new GameObject("Snack"); var component = go.AddComponent<SeaweedSnack>();
             var billboard = Group("item.png billboard", go.transform); billboard.localPosition = Vector3.up * .65f;
             var sprite = billboard.gameObject.AddComponent<SpriteRenderer>(); sprite.sprite = settings.snack;
-            billboard.localScale = Vector3.one * (1.15f / sprite.sprite.bounds.size.y);
+            billboard.localScale = Vector3.one * (settings.itemSize / Mathf.Max(sprite.sprite.bounds.size.x, sprite.sprite.bounds.size.y));
             Set(component, "billboard", billboard); return Save(go, "Arena Snack");
         }
         GameObject BakeCube()

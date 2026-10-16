@@ -11,6 +11,10 @@ namespace SeaweedSlayer
         [Min(10)] public float roundSeconds = 90;
         public Font titleFont, uiFont;
         public Sprite playerOutline, snack, logo;
+        [Min(.1f)] public float itemSize = 1.5f;
+        [Min(0)] public int initialItems = 6;
+        [Min(1)] public int maximumItems = 10;
+        public Vector2 itemSpawnSeconds = new Vector2(3, 5);
         public GameObject joystickPrefab, playerModel, enemyModel;
         [Range(1, 4)] public int maximumEnemies = 3;
         [Min(1)] public int enemyScore = 50;

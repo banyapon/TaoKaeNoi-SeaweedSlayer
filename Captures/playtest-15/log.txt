@@ -1,0 +1,15 @@
+21:49:10 waiting for the PC room
+21:49:12 shot 01-lobby.png phase=Lobby players=0 remaining=0.0
+21:49:22 shot 02-fifteen-joined.png phase=Lobby players=15 remaining=0.0
+21:49:22 shot 03-countdown.png phase=Countdown players=15 remaining=10.0
+21:49:28 shot 04-countdown-3.png phase=Countdown players=15 remaining=3.2
+21:49:32 shot 05-start.png phase=Playing players=15 remaining=89.6
+21:49:47 shot 06-play-75s.png phase=Playing players=15 remaining=75.0
+21:50:07 shot 07-play-60s.png phase=Playing players=15 remaining=60.0
+21:50:23 shot 08-play-45s.png phase=Playing players=15 remaining=45.0
+21:50:40 shot 09-play-30s.png phase=Playing players=15 remaining=30.0
+21:50:55 shot 10-play-15s.png phase=Playing players=15 remaining=15.0
+21:51:05 shot 11-play-5s.png phase=Playing players=15 remaining=5.0
+21:51:10 shot 12-results.png phase=Results players=15 remaining=0.0
+21:51:10 results Beam=110, Fah=110, Pim=110, Ploy=90, Ice=80, Korn=80, Mint=75, Bank=65, Sky=50, Mali=30, June=20, Win=20, Nut=15, Earth=10, Fern=10
+21:51:10 ok

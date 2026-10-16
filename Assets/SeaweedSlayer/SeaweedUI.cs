@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Linq;
 using Photon.Pun;
@@ -29,9 +29,21 @@ namespace SeaweedSlayer
         Vector2 layoutSize;
         Rect layoutSafeArea;
         float nextSend;
+        int? firingPointer;
+        float nextHeldThrow;
         [SerializeField] InputField controllerUrlInput;
         [SerializeField] bool controllerView;
         Sprite qrSprite; Texture2D qrTexture;
+        [SerializeField] Text countdown;
+        [SerializeField] Image countdownQR;
+        string previousPhase;
+        int lastCountdownNumber = -1;
+        float startMessageEnds;
+        Text resultsHint;
+        Button exitResults;
+        RectTransform[] resultCards;
+        Text[] resultScores;
+        Image[] resultAccents;
         public void Initialize(SeaweedSession s)
         {
             session = s;
@@ -40,12 +52,77 @@ namespace SeaweedSlayer
                 nameInput.text = PlayerPrefs.GetString("ss.name", "Player");
                 SelectColor(Mathf.Clamp(PlayerPrefs.GetInt("ss.color", 0), 0, colors.Length - 1));
             }
-            else controllerUrlInput.text = PlayerPrefs.GetString("ss.pc.url", s.settings.controllerUrl);
+            else
+            {
+                controllerUrlInput.text = PlayerPrefs.GetString("ss.pc.url", s.settings.controllerUrl);
+                if (countdown == null)
+                {
+                    var go = new GameObject("Big countdown", typeof(RectTransform), typeof(Text), typeof(Outline));
+                    go.transform.SetParent(root, false);
+                    countdown = go.GetComponent<Text>();
+                    countdown.font = s.settings.titleFont != null ? s.settings.titleFont : s.settings.uiFont;
+                    countdown.fontSize = 180; countdown.fontStyle = FontStyle.Bold;
+                    countdown.alignment = TextAnchor.MiddleCenter; countdown.color = Color.white;
+                    countdown.raycastTarget = false;
+                    countdown.resizeTextForBestFit = true; countdown.resizeTextMinSize = 60; countdown.resizeTextMaxSize = 180;
+                    countdown.rectTransform.anchorMin = new Vector2(.3f, .2f);
+                    countdown.rectTransform.anchorMax = new Vector2(.7f, .8f);
+                    countdown.rectTransform.offsetMin = countdown.rectTransform.offsetMax = Vector2.zero;
+                    go.GetComponent<Outline>().effectColor = Color.black;
+                    go.GetComponent<Outline>().effectDistance = new Vector2(4, -4);
+                }
+                if (countdownQR == null)
+                {
+                    countdownQR = Instantiate(qr, root, false);
+                    countdownQR.name = "Countdown QR";
+                    var rect = countdownQR.rectTransform;
+                    rect.anchorMin = rect.anchorMax = rect.pivot = Vector2.one * .5f;
+                    rect.anchoredPosition = new Vector2(0, -195);
+                    rect.sizeDelta = Vector2.one * 180;
+                    rect.localScale = Vector3.one;
+                    rect.localRotation = Quaternion.identity;
+                    countdownQR.preserveAspect = true;
+                    countdownQR.raycastTarget = false;
+                    countdownQR.gameObject.SetActive(false);
+                }
+            }
+            if (controllerView) InitializeHoldFire();
+            InitializeResults();
+            if (joystick != null) joystick.DeadZone = .06f;
             Refresh();
         }
         public void CreateQR() => session.SetControllerUrl(controllerUrlInput.text);
         public void PlaySolo() => session.PlaySolo();
-        public void Throw() => session.Throw();
+        public void Throw() => session.Throw(joystick != null ? joystick.Direction : Vector2.zero);
+        void InitializeHoldFire()
+        {
+            // Pointer-down fires immediately; pointer-up must not add a second click shot.
+            throwButton.onClick = new Button.ButtonClickedEvent();
+            var trigger = throwButton.gameObject.AddComponent<EventTrigger>();
+            AddFireEvent(trigger, EventTriggerType.PointerDown, data => {
+                var pointer = data as PointerEventData;
+                if (pointer == null || pointer.button != PointerEventData.InputButton.Left ||
+                    firingPointer.HasValue || !throwButton.IsInteractable() || !session.Connected || session.Phase != "Playing") return;
+                firingPointer = pointer.pointerId;
+                FireHeldShot();
+            });
+            foreach (var type in new[] { EventTriggerType.PointerUp, EventTriggerType.PointerExit })
+                AddFireEvent(trigger, type, data => {
+                    if (data is PointerEventData pointer && firingPointer == pointer.pointerId) firingPointer = null;
+                });
+            AddFireEvent(trigger, EventTriggerType.Cancel, data => firingPointer = null);
+            AddFireEvent(trigger, EventTriggerType.Submit, data => { if (throwButton.IsInteractable()) Throw(); });
+        }
+        static void AddFireEvent(EventTrigger trigger, EventTriggerType type, UnityEngine.Events.UnityAction<BaseEventData> action)
+        {
+            var entry = new EventTrigger.Entry { eventID = type };
+            entry.callback.AddListener(action); trigger.triggers.Add(entry);
+        }
+        void FireHeldShot()
+        {
+            Throw();
+            nextHeldThrow = Time.unscaledTime + SeaweedAvatar.ThrowInterval + .02f;
+        }
         public static string RankLabel(int rank) => rank == 1 ? "1st" : rank == 2 ? "2nd" : rank == 3 ? "3rd" : rank + "th";
         public void SelectColor(int color)
         {
@@ -56,17 +133,117 @@ namespace SeaweedSlayer
             throwButton.GetComponent<Image>().color = session.settings.palette[color];
             throwButton.GetComponentInChildren<Text>().color = new Color32(13, 32, 30, 255);
             profilePreview.color = session.settings.palette[color]; profilePreview.text = "สีผู้เล่นและวงใต้เท้า";
-            if (session.Connected && session.Phase == "Lobby") session.Register(nameInput.text, selectedColor);
+            if (session.Connected && session.CanJoinRound) session.Register(nameInput.text, selectedColor);
         }
         public void CommitReady()
         {
-            if (!session.Connected || session.Phase != "Lobby") return;
+            if (!session.Connected || !session.CanJoinRound) return;
             var name = nameInput.text.Trim(); if (name.Length == 0) { session.SetStatus("กรุณาใส่ชื่อผู้เล่น"); return; }
             PhotonNetwork.NickName = name;
             PhotonNetwork.LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable {
-                { "registered", true }, { "color", selectedColor }, { "ready", !session.IsReady }
+                { "registered", true }, { "color", selectedColor }, { "ready", !session.IsReady }, { "readyRound", session.ReadyRound }
             });
             PlayerPrefs.SetString("ss.name", name); PlayerPrefs.SetInt("ss.color", selectedColor); PlayerPrefs.Save();
+        }
+        void InitializeResults()
+        {
+            // Upgrade the existing authored result container without replacing the scene.
+            SetRegion(results, Vector2.zero, Vector2.one, 0);
+            results.GetComponent<Image>().color = new Color32(13, 32, 30, 255);
+            results.SetAsLastSibling();
+            var heading = results.Find("Result title");
+            if (heading == null) heading = CreateResultText("Result title", 48).transform;
+            heading.GetComponent<Text>().text = "TOP 3";
+            SetRegion((RectTransform)heading, new Vector2(.05f, .82f), new Vector2(.95f, .96f));
+            if (!controllerView)
+            {
+                var background = results.GetComponent<Image>();
+                // Fill the screen without distorting the background artwork.
+                var artwork = Resources.Load<Sprite>("sprites/End");
+                var art = new GameObject("Results artwork", typeof(RectTransform), typeof(Image), typeof(AspectRatioFitter));
+                art.transform.SetParent(results, false); art.transform.SetAsFirstSibling();
+                SetRegion((RectTransform)art.transform, Vector2.zero, Vector2.one, 0);
+                var image = art.GetComponent<Image>(); image.sprite = artwork; image.raycastTarget = false;
+                var fit = art.GetComponent<AspectRatioFitter>(); fit.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
+                if (image.sprite != null) fit.aspectRatio = image.sprite.rect.width / image.sprite.rect.height;
+                background.sprite = null; background.color = new Color32(13, 32, 30, 255);
+                CreateResultPanel("Results shade", results, Vector2.zero, Vector2.one, new Color(0, .08f, .1f, .3f));
+                heading.SetAsLastSibling();
+                SetRegion((RectTransform)heading, new Vector2(.05f, .84f), new Vector2(.95f, .98f));
+                resultCards = new RectTransform[rankingRows.Length];
+                resultScores = new Text[rankingRows.Length];
+                resultAccents = new Image[rankingRows.Length];
+            }
+            for (int i = 0; i < rankingRows.Length; i++)
+            {
+                if (controllerView)
+                {
+                    rankingRows[i].gameObject.SetActive(i < 3);
+                    float top = .78f - i * .18f;
+                    SetRegion(rankingRows[i].rectTransform, new Vector2(.08f, top - .16f), new Vector2(.92f, top));
+                    rankingRows[i].alignment = TextAnchor.MiddleCenter;
+                    rankingRows[i].resizeTextMaxSize = 42;
+                    continue;
+                }
+                bool podium = i < 3;
+                int column = podium ? i : (i - 3) % 4;
+                int row = podium ? 0 : (i - 3) / 4;
+                float width = podium ? .3f : .225f;
+                float left = .04f + column * (podium ? .31f : .232f);
+                float topY = podium ? .81f : .53f - row * .083f;
+                var card = CreateResultPanel("Result rank " + (i + 1), results,
+                    new Vector2(left, topY - (podium ? .16f : .073f)), new Vector2(left + width, topY), new Color32(27, 141, 173, 255));
+                var face = CreateResultPanel("Card face", card, Vector2.zero, Vector2.one, new Color32(13, 56, 67, 255));
+                SetRegion(face, Vector2.zero, Vector2.one, podium ? 7 : 4);
+                resultCards[i] = card;
+                var rank = CreateResultText("Rank", podium ? 32 : 22); rank.transform.SetParent(card, false);
+                rank.text = RankLabel(i + 1).ToUpperInvariant();
+                rank.font = session.settings.titleFont != null ? session.settings.titleFont : session.settings.uiFont;
+                rank.color = i == 0 ? new Color32(255, 214, 85, 255) : i == 1 ? new Color32(208, 224, 231, 255) : i == 2 ? new Color32(218, 162, 113, 255) : Color.white;
+                SetRegion(rank.rectTransform, Vector2.zero, new Vector2(.21f, 1), 2);
+                resultAccents[i] = CreateResultPanel("Player accent", card, new Vector2(.215f, .16f), new Vector2(.235f, .84f), Color.white).GetComponent<Image>();
+                rankingRows[i].transform.SetParent(card, false);
+                SetRegion(rankingRows[i].rectTransform, new Vector2(.27f, .08f), new Vector2(.76f, .92f), 2);
+                rankingRows[i].alignment = TextAnchor.MiddleLeft;
+                rankingRows[i].resizeTextMaxSize = podium ? 30 : 21;
+                rankingRows[i].verticalOverflow = VerticalWrapMode.Truncate;
+                resultScores[i] = CreateResultText("Score", podium ? 32 : 22); resultScores[i].transform.SetParent(card, false);
+                SetRegion(resultScores[i].rectTransform, new Vector2(.77f, 0), new Vector2(.98f, 1), 2);
+                card.gameObject.SetActive(false);
+            }
+            if (!controllerView)
+            {
+                var others = CreateResultText("Other rankings title", 24); others.text = "RANKINGS";
+                SetRegion(others.rectTransform, new Vector2(.04f, .55f), new Vector2(.96f, .62f), 0);
+            }
+            resultsHint = CreateResultText("Results wait", 24);
+            SetRegion(resultsHint.rectTransform, new Vector2(.05f, .04f), new Vector2(.95f, controllerView ? .2f : .1f));
+            if (controllerView)
+            {
+                var go = new GameObject("Exit results", typeof(RectTransform), typeof(Image), typeof(Button));
+                go.transform.SetParent(results, false);
+                SetRegion((RectTransform)go.transform, new Vector2(.18f, .04f), new Vector2(.82f, .15f));
+                go.GetComponent<Image>().color = new Color32(64, 123, 78, 255);
+                exitResults = go.GetComponent<Button>(); exitResults.onClick.AddListener(session.ExitResults);
+                var caption = CreateResultText("Exit caption", 28); caption.transform.SetParent(go.transform, false);
+                SetRegion(caption.rectTransform, Vector2.zero, Vector2.one, 0); caption.text = "ออกจากเกม";
+                SetRegion(resultsHint.rectTransform, new Vector2(.05f, .15f), new Vector2(.95f, .24f));
+            }
+        }
+        RectTransform CreateResultPanel(string name, Transform parent, Vector2 min, Vector2 max, Color color)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(Image)); go.transform.SetParent(parent, false);
+            var rect = (RectTransform)go.transform; SetRegion(rect, min, max, 0);
+            go.GetComponent<Image>().color = color; go.GetComponent<Image>().raycastTarget = false;
+            return rect;
+        }
+        Text CreateResultText(string name, int size)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(Text)); go.transform.SetParent(results, false);
+            var text = go.GetComponent<Text>(); text.font = session.settings.uiFont; text.fontSize = size;
+            text.color = Color.white; text.alignment = TextAnchor.MiddleCenter; text.raycastTarget = false;
+            text.resizeTextForBestFit = true; text.resizeTextMinSize = 12; text.resizeTextMaxSize = size;
+            return text;
         }
         public void Refresh()
         {
@@ -74,16 +251,29 @@ namespace SeaweedSlayer
             status.text = session.Status;
             if (session.IsController)
             {
-                bool editable = session.Connected && session.Phase == "Lobby";
+                bool isPlaying = session.Connected && session.Phase == "Playing";
+                if (previousPhase != session.Phase && joystick != null) joystick.OnPointerUp(null);
+                previousPhase = session.Phase;
+                controller.gameObject.SetActive(!session.Connected || session.Phase != "Results");
+                // Profile and gameplay controls occupy separate phases and never overlap.
+                nameInput.gameObject.SetActive(session.CanJoinRound);
+                ready.gameObject.SetActive(session.CanJoinRound);
+                foreach (var b in colors) b.gameObject.SetActive(session.CanJoinRound);
+                profilePreview.gameObject.SetActive(session.CanJoinRound);
+                play.gameObject.SetActive(isPlaying);
+                resultsHint.text = session.HasExitedResults ? "รอผู้เล่นคนอื่นออกจากเกม" : "กดออกจากเกมเมื่อดูคะแนนเสร็จ";
+                exitResults.interactable = session.Connected && session.Phase == "Results" && !session.HasExitedResults;
+                bool editable = session.Connected && session.CanJoinRound;
                 ready.interactable = editable; nameInput.interactable = editable && !session.IsReady;
                 foreach (var b in colors) b.interactable = editable && !session.IsReady;
                 readyText.text = session.IsReady ? "ยกเลิก Ready" : "READY";
                 throwButton.interactable = session.Connected && session.Phase == "Playing";
+                if (!throwButton.interactable) firingPointer = null;
                 results.gameObject.SetActive(session.Connected && session.Phase == "Results");
                 if (session.Connected)
                 {
                     string seconds = PhotonNetwork.CurrentRoom.CustomProperties["seconds"]?.ToString() ?? "";
-                    status.text = "ห้อง " + session.RoomCode + " / " + (session.Phase == "Lobby" ? "รอทุกคนกด Ready" : session.Phase + "  " + seconds);
+                    status.text = "ห้อง " + session.RoomCode + " / " + (session.Phase == "Lobby" ? "กด Ready เพื่อเริ่มนับถอยหลัง" : session.Phase + "  " + seconds);
                     profilePreview.text = session.IsReady ? "พร้อมแล้ว รอเพื่อนในห้อง" : "สีผู้เล่นและวงใต้เท้า";
                     var props = PhotonNetwork.CurrentRoom.CustomProperties;
                     if (session.Phase == "Results" && props["rankNames"] is string[] names && props["rankScores"] is int[] scores && props["rankColors"] is string[] colorValues)
@@ -97,9 +287,29 @@ namespace SeaweedSlayer
                 }
                 return;
             }
-            lobby.gameObject.SetActive(session.Phase == "Lobby"); results.gameObject.SetActive(false);
+            bool counting = session.Phase == "Countdown";
+            lobby.gameObject.SetActive(session.Phase == "Lobby"); results.gameObject.SetActive(session.Phase == "Results");
+            resultsHint.text = "รอผู้เล่นออกจากเกมอีก " + session.ResultsWaiting + " คน / Admin กด Enter กลับ Title";
+            qr.gameObject.SetActive(session.Phase == "Lobby");
+            // The opening artwork stays hidden; only the QR appears below the countdown.
+            countdownQR.sprite = qr.sprite;
+            countdownQR.gameObject.SetActive(counting && countdownQR.sprite != null);
+            if (previousPhase == "Countdown" && session.Phase == "Playing")
+            {
+                startMessageEnds = Time.unscaledTime + 1;
+                session.PlayStartSound();
+            }
+            if (session.Phase != "Playing") startMessageEnds = 0;
+            previousPhase = session.Phase;
+            countdown.gameObject.SetActive(counting || (session.Phase == "Playing" && Time.unscaledTime < startMessageEnds));
+            int countdownNumber = counting ? Mathf.CeilToInt(session.Remaining) : -1;
+            countdown.text = counting ? countdownNumber.ToString() : "START!";
+            // Refresh can run several times per frame; sound only follows a new displayed number.
+            if (countdownNumber != lastCountdownNumber && countdownNumber >= 1 && countdownNumber <= 10)
+                session.PlayCountSound();
+            lastCountdownNumber = countdownNumber;
             title.text = session.Phase == "Results" ? "ROUND RESULTS" : "SEAWEED SLAYER";
-            timer.text = session.Phase == "Lobby" ? "ROOM " + (session.RoomCode ?? "------") : session.Phase == "Countdown" ? "START " + Mathf.CeilToInt(session.Remaining) : Mathf.CeilToInt(session.Remaining) + " SEC";
+            timer.text = session.Phase == "Lobby" ? "ROOM " + (session.RoomCode ?? "------") : session.Phase == "Results" ? "TOP 3" : session.Phase == "Countdown" ? "START " + Mathf.CeilToInt(session.Remaining) : Mathf.CeilToInt(session.Remaining) + " SEC";
             if (hint != null) hint.text = string.IsNullOrEmpty(session.JoinUrl) ? "ตั้ง controllerUrl ใน SeaweedSettings" : "ห้อง " + session.RoomCode + " / กด Ready บนมือถือ";
             var ordered = session.Players.Values.OrderByDescending(p => p.Score).ThenBy(p => p.Actor).ToArray();
             roster.text = "PLAYERS " + ordered.Length + "/" + session.settings.maximumPlayers;
@@ -108,10 +318,13 @@ namespace SeaweedSlayer
                 bool occupied = i < ordered.Length;
                 cards[i].gameObject.SetActive(occupied);
                 rosterRows[i].text = occupied ? ordered[i].DisplayName : "";
-                cardScores[i].text = occupied ? (session.Phase == "Lobby" ? ReadyLabel(ordered[i].Actor) : ordered[i].Score.ToString()) : "";
+                cardScores[i].text = occupied ? (session.CanJoinRound ? ReadyLabel(ordered[i].Actor) : ordered[i].Score.ToString()) : "";
                 cardRanks[i].color = i == 0 ? new Color32(255, 214, 85, 255) : i == 1 ? new Color32(208, 224, 231, 255) : i == 2 ? new Color32(218, 162, 113, 255) : Color.white;
                 if (occupied) cards[i].Find("Player accent").GetComponent<Image>().color = ordered[i].Color;
-                rankingRows[i].text = occupied ? (i + 1) + ". " + ordered[i].DisplayName + "   " + ordered[i].Score + " pts" : "";
+                resultCards[i].gameObject.SetActive(occupied);
+                rankingRows[i].text = occupied ? ordered[i].DisplayName : "";
+                resultScores[i].text = occupied ? ordered[i].Score.ToString() : "";
+                if (occupied) resultAccents[i].color = ordered[i].Color;
                 if (occupied) rosterRows[i].color = rankingRows[i].color = ordered[i].Color;
             }
         }
@@ -139,6 +352,8 @@ namespace SeaweedSlayer
         {
             if (session == null) return;
             if (!session.IsController) { if (Time.unscaledTime >= nextHud) { nextHud = Time.unscaledTime + .15f; Refresh(); } return; }
+            if (!session.Connected || session.Phase != "Playing" || !throwButton.IsActive() || !throwButton.IsInteractable()) firingPointer = null;
+            if (firingPointer.HasValue && Time.unscaledTime >= nextHeldThrow) FireHeldShot();
             if (joystick == null) return;
             if (Time.unscaledTime > nextSend) { nextSend = Time.unscaledTime + .05f; session.Move(joystick.Direction); }
         }
@@ -152,21 +367,46 @@ namespace SeaweedSlayer
             layoutSize = size; layoutSafeArea = safe;
             var min = new Vector2(safe.xMin / Screen.width, safe.yMin / Screen.height);
             var max = new Vector2(safe.xMax / Screen.width, safe.yMax / Screen.height);
-            float split = Mathf.Lerp(min.y, max.y, .47f);
-            SetRegion(controller, new Vector2(min.x, split), max);
-            SetRegion(play, min, new Vector2(max.x, split));
             bool portrait = safe.height > safe.width;
-            int columns = portrait ? 5 : colors.Length;
+            if (portrait)
+            {
+                float split = Mathf.Lerp(min.y, max.y, .47f);
+                SetRegion(controller, new Vector2(min.x, split), max);
+                SetRegion(play, min, new Vector2(max.x, split));
+            }
+            else
+            {
+                float split = Mathf.Lerp(min.x, max.x, .42f);
+                SetRegion(controller, min, new Vector2(split, max.y));
+                SetRegion(play, new Vector2(split, min.y), max);
+            }
+            var logoTitle = controller.Find("Title") as RectTransform;
+            if (logoTitle != null)
+            {
+                SetRegion(logoTitle, new Vector2(.04f, .80f), new Vector2(.96f, .98f), 2);
+                var logo = logoTitle.Find("Image") as RectTransform;
+                if (logo != null)
+                {
+                    logo.localScale = Vector3.one;
+                    SetRegion(logo, Vector2.zero, Vector2.one, 0);
+                    logo.GetComponent<Image>().preserveAspect = true;
+                }
+            }
+            SetRegion(status.rectTransform, new Vector2(.04f, .71f), new Vector2(.96f, .80f), 2);
+            SetRegion(nameInput.GetComponent<RectTransform>(), new Vector2(.04f, .56f), new Vector2(.96f, .70f), 2);
+            SetRegion((RectTransform)ready.transform, new Vector2(.04f, .04f), new Vector2(.96f, .21f), 2);
+            SetRegion(profilePreview.rectTransform, new Vector2(.04f, .22f), new Vector2(.96f, .28f), 0);
+            int columns = Mathf.Min(5, colors.Length);
             int rows = Mathf.CeilToInt((float)colors.Length / columns);
             for (int i = 0; i < colors.Length; i++)
             {
                 float left = .04f + (i % columns) * .92f / columns;
-                float top = .41f - (i / columns) * .21f / rows;
+                float top = .55f - (i / columns) * .26f / rows;
                 SetRegion((RectTransform)colors[i].transform,
-                    new Vector2(left, top - .21f / rows), new Vector2(left + .92f / columns, top), 4);
+                    new Vector2(left, top - .26f / rows), new Vector2(left + .92f / columns, top), 2);
             }
             // Both controls use one diameter in canvas units, never stretched anchors.
-            float diameter = Mathf.Min(230, play.rect.width * .38f, play.rect.height * .68f);
+            float diameter = Mathf.Min(230, play.rect.width * .38f, play.rect.height * .62f);
             SetCircle((RectTransform)joystick.transform, new Vector2(.25f, .54f), diameter);
             SetCircle((RectTransform)throwButton.transform, new Vector2(.75f, .54f), diameter);
             throwButton.GetComponent<Image>().preserveAspect = true;
@@ -181,7 +421,9 @@ namespace SeaweedSlayer
             rect.anchorMin = rect.anchorMax = anchor; rect.pivot = Vector2.one * .5f;
             rect.anchoredPosition = Vector2.zero; rect.sizeDelta = Vector2.one * diameter;
         }
-        void OnApplicationFocus(bool focus) { if (!focus && session != null) session.Move(Vector2.zero); }
+        void OnDisable() { firingPointer = null; }
+        void OnApplicationPause(bool paused) { if (paused) { firingPointer = null; if (session != null) session.Move(Vector2.zero); } }
+        void OnApplicationFocus(bool focus) { if (!focus) { firingPointer = null; if (session != null) session.Move(Vector2.zero); } }
         void OnDestroy() { if (qrSprite != null) Destroy(qrSprite); if (qrTexture != null) Destroy(qrTexture); }
     }
 }

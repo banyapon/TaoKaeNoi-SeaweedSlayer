@@ -37,6 +37,8 @@ namespace SeaweedSlayer
         {
             if (arena == null || defeated || arena.Session.Phase != "Playing" || !arena.Session.Players.TryGetValue(shooter, out var player)) return;
             defeated = true; player.Score += arena.Session.settings.enemyScore;
+            arena.Session.PlayHurtSound();
+            SeaweedFeedback.PixelBurst(transform.position + Vector3.up, outline.color, outline.sharedMaterial, arena.transform);
             arena.Session.UI.Refresh(); gameObject.SetActive(false);
         }
         void Update()

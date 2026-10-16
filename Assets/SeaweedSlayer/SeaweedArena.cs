@@ -34,7 +34,7 @@ namespace SeaweedSlayer
         }
         public void NewRound()
         {
-            ClearSnacks(); ClearProjectiles(); ClearEnemies();
+            ClearSnacks(); ClearProjectiles(); ClearEnemies(); ClearFeedback();
             if (randomizeTrees)
             {
                 blocked.Clear();
@@ -53,8 +53,8 @@ namespace SeaweedSlayer
             }
             else RefreshObstacles();
             if (randomizeGrass) ScatterGrass();
-            for (int i = 0; i < 28; i++) SpawnSnack();
-            nextSnack = Time.time + 1; nextEnemy = Time.time + 3;
+            for (int i = 0; i < Mathf.Min(Session.settings.initialItems, Session.settings.maximumItems); i++) SpawnSnack();
+            ScheduleSnack(); nextEnemy = Time.time + 3;
         }
         void ScatterGrass()
         {
@@ -101,11 +101,19 @@ namespace SeaweedSlayer
             var cube = shots.FirstOrDefault(p => !p.gameObject.activeSelf); if (cube == null) return;
             cube.transform.SetPositionAndRotation(owner.transform.position + Vector3.up * .85f + direction * .8f, Quaternion.identity);
             cube.Initialize(this, owner.Actor, direction); cube.gameObject.SetActive(true);
+            Session.PlayShotSound();
         }
         void SpawnSnack()
         {
+            if (snacks.Count(p => p.gameObject.activeSelf) >= Session.settings.maximumItems) return;
             var snack = snacks.FirstOrDefault(p => !p.gameObject.activeSelf); if (snack == null) return;
             snack.transform.position = FreePosition(); snack.Initialize(this); snack.gameObject.SetActive(true);
+        }
+        void ScheduleSnack()
+        {
+            var interval = Session.settings.itemSpawnSeconds;
+            float minimum = Mathf.Max(.1f, interval.x);
+            nextSnack = Time.time + Random.Range(minimum, Mathf.Max(minimum, interval.y));
         }
         public SeaweedEnemy SpawnEnemy()
         {
@@ -119,12 +127,14 @@ namespace SeaweedSlayer
         void Update()
         {
             if (Session == null || Session.Phase != "Playing") return;
-            if (Time.time > nextSnack) { nextSnack = Time.time + .6f; SpawnSnack(); }
+            if (Time.time > nextSnack) { ScheduleSnack(); SpawnSnack(); }
             if (Time.time >= nextEnemy) { nextEnemy = Time.time + Random.Range(7f, 11f); SpawnEnemy(); }
         }
         public void ClearEnemies() { foreach (var enemy in enemies) enemy.gameObject.SetActive(false); }
         public void ClearSnacks() { foreach (var snack in snacks) snack.gameObject.SetActive(false); }
         public void ClearProjectiles() { foreach (var shot in shots) shot.gameObject.SetActive(false); }
+        public void ClearFeedback()
+        { foreach (var feedback in GetComponentsInChildren<SeaweedFeedback>(true)) Destroy(feedback.gameObject); }
         public static void FitModel(GameObject go, float height)
         {
             var rs = go.GetComponentsInChildren<Renderer>(); if (rs.Length == 0) return;
