@@ -50,7 +50,7 @@ static class SeaweedPlaytest15Driver
         if (EditorApplication.isPlaying && File.Exists(Running))
         {
             if (playStartedAt < 0) playStartedAt = EditorApplication.timeSinceStartup;
-            if (!File.Exists(Done) && EditorApplication.timeSinceStartup - playStartedAt > 240)
+            if (!File.Exists(Done) && EditorApplication.timeSinceStartup - playStartedAt > 300)
                 File.WriteAllText(Done, "fail: editor timeout");
         }
         if (File.Exists(Done) && EditorApplication.isPlaying)

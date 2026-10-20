@@ -64,7 +64,7 @@ namespace SeaweedSlayer
             folder = Path.Combine(ProjectRoot(), "Captures", "playtest-15");
             Directory.CreateDirectory(folder);
             foreach (var old in Directory.GetFiles(folder, "*.png")) File.Delete(old);
-            deadline = Time.realtimeSinceStartup + 220f;
+            deadline = Time.realtimeSinceStartup + 280f;
             session = FindAnyObjectByType<SeaweedSession>();
             Log("waiting for the PC room");
             float connectedBy = Time.realtimeSinceStartup + 40f;
@@ -113,6 +113,13 @@ namespace SeaweedSlayer
             yield return Capture("02-fifteen-joined.png");
             for (int i = 0; i < clients.Count; i++)
                 clients[i].LocalPlayer.SetCustomProperties(new Hashtable { { "ready", true }, { "readyRound", round } });
+            float waitingBy = Time.realtimeSinceStartup + 15f;
+            while (session.Phase != "Waiting")
+            {
+                if (Time.realtimeSinceStartup > waitingBy) { Finish("fail: waiting room did not open"); yield break; }
+                yield return null;
+            }
+            clients[0].OpRaiseEvent(34, new object[] { round, true }, new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient }, SendOptions.SendReliable);
             float countdownBy = Time.realtimeSinceStartup + 15f;
             while (session.Phase != "Countdown")
             {

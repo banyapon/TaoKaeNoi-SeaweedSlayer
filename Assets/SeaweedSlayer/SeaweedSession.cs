@@ -26,13 +26,14 @@ namespace SeaweedSlayer
         public string JoinUrl { get; private set; }
         public bool IsReady => Connected && PhotonNetwork.LocalPlayer.CustomProperties["ready"] is bool r && r &&
             PhotonNetwork.LocalPlayer.CustomProperties["readyRound"] is int round && round == ReadyRound;
-        public bool CanJoinRound => Phase == "Lobby" || Phase == "Countdown";
+        public bool CanJoinRound => Phase == "Lobby" || Phase == "Waiting" || Phase == "Countdown";
+        public bool ResultsReturning => Phase == "Results" && phaseEnds > 0;
         [SerializeField] SeaweedArena arena;
         [SerializeField] SeaweedUI pcUI, controllerUI;
         public SeaweedArena Arena { get; private set; }
         public SeaweedUI UI { get; private set; }
         public readonly Dictionary<int, SeaweedAvatar> Players = new Dictionary<int, SeaweedAvatar>();
-        const byte MoveCode = 31, ThrowCode = 32, ExitResultsCode = 33;
+        const byte MoveCode = 31, ThrowCode = 32, ExitResultsCode = 33, ConfirmCode = 34;
         readonly HashSet<int> resultPlayers = new HashSet<int>();
         readonly HashSet<int> exitedResults = new HashSet<int>();
         int roundId;
@@ -197,6 +198,12 @@ namespace SeaweedSlayer
                 PhotonNetwork.LocalPlayer.SetCustomProperties(new Hashtable { { "ready", !IsReady }, { "readyRound", ReadyRound } });
         }
         public int ReadyRound => IsController && Connected && PhotonNetwork.CurrentRoom.CustomProperties["round"] is int value ? value : roundId;
+        public void Confirm()
+        {
+            if (!IsController || !Connected || !IsReady || !CanJoinRound) return;
+            PhotonNetwork.RaiseEvent(ConfirmCode, new object[] { ReadyRound, Phase != "Countdown" },
+                new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient }, SendOptions.SendReliable);
+        }
         public void ExitResults()
         {
             if (!IsController || !Connected || Phase != "Results" || HasExitedResults) return;
@@ -210,7 +217,10 @@ namespace SeaweedSlayer
         }
         void CheckResultsExit()
         {
-            if (Phase == "Results" && !solo && resultPlayers.All(id => exitedResults.Contains(id))) ReturnLobby();
+            if (Phase != "Results" || solo) return;
+            if (resultPlayers.All(id => exitedResults.Contains(id))) { ReturnLobby(); return; }
+            // Only the first exit starts the grace period; later exits cannot extend it.
+            if (exitedResults.Count > 0 && !ResultsReturning) { phaseEnds = Time.time + 30; Publish(); }
         }
         public void Move(Vector2 direction)
         {
@@ -225,6 +235,17 @@ namespace SeaweedSlayer
         }
         public void OnEvent(EventData e)
         {
+            if (!IsController && !solo && CanJoinRound && e.Code == ConfirmCode &&
+                e.CustomData is object[] confirmation && confirmation.Length == 2 &&
+                confirmation[0] is int confirmRound && confirmRound == roundId && confirmation[1] is bool confirmed)
+            {
+                var peer = PhotonNetwork.CurrentRoom.GetPlayer(e.Sender);
+                if (!IsPeerReady(peer)) return;
+                if (confirmed && Phase == "Waiting") { Phase = "Countdown"; phaseEnds = Time.time + 60; }
+                else if (!confirmed && Phase == "Countdown") { Phase = "Waiting"; phaseEnds = 0; }
+                else return;
+                Publish(); UI.Refresh(); return;
+            }
             if (!IsController && Phase == "Results" && e.Code == ExitResultsCode && e.CustomData is int round && round == roundId && resultPlayers.Contains(e.Sender))
             { exitedResults.Add(e.Sender); CheckResultsExit(); UI.Refresh(); return; }
             if (IsController || Phase != "Playing" || !Players.TryGetValue(e.Sender, out var avatar) || !avatar.gameObject.activeSelf) return;
@@ -268,13 +289,15 @@ namespace SeaweedSlayer
         }
         void CheckReady()
         {
-            if (IsController || solo || (Phase != "Lobby" && Phase != "Countdown")) return;
+            if (IsController || solo || !CanJoinRound) return;
             var peers = PhotonNetwork.PlayerList.Where(p => !p.IsLocal).ToArray();
-            bool anyReady = peers.Any(p => !p.IsInactive && Players.ContainsKey(p.ActorNumber) && p.CustomProperties["ready"] is bool r && r && p.CustomProperties["readyRound"] is int round && round == roundId);
-            if (anyReady && Phase == "Lobby") { Phase = "Countdown"; phaseEnds = Time.time + 10; PhotonNetwork.CurrentRoom.IsOpen = true; Publish(); }
-            else if (!anyReady && Phase == "Countdown") { Phase = "Lobby"; PhotonNetwork.CurrentRoom.IsOpen = true; Publish(); }
+            bool anyReady = peers.Any(IsPeerReady);
+            if (anyReady && Phase == "Lobby") { Phase = "Waiting"; phaseEnds = 0; Publish(); }
+            else if (!anyReady && Phase != "Lobby") { Phase = "Lobby"; phaseEnds = 0; Publish(); }
             UI.Refresh();
         }
+        bool IsPeerReady(Player peer) => peer != null && !peer.IsLocal && !peer.IsInactive && Players.ContainsKey(peer.ActorNumber) &&
+            peer.CustomProperties["ready"] is bool ready && ready && peer.CustomProperties["readyRound"] is int round && round == roundId;
         public void PlaySolo()
         {
             if (IsController || Phase != "Lobby" || Players.Values.Any(p => p.gameObject.activeSelf)) return;
@@ -301,7 +324,8 @@ namespace SeaweedSlayer
                 PhotonNetwork.CurrentRoom.IsOpen = CanJoinRound && !solo;
             if (Phase == "Results" && Keyboard.current != null &&
                 (Keyboard.current.enterKey.wasPressedThisFrame || Keyboard.current.numpadEnterKey.wasPressedThisFrame)) AdminReturnToTitle();
-            if (Phase == "Countdown" && Remaining == 0)
+            if (ResultsReturning && Remaining == 0) ReturnLobby();
+            else if (Phase == "Countdown" && Remaining == 0)
             {
                 if (PhotonNetwork.InRoom) PhotonNetwork.CurrentRoom.IsOpen = false;
                 Arena.gameObject.SetActive(true);

@@ -41,6 +41,9 @@ namespace SeaweedSlayer
         float startMessageEnds;
         Text resultsHint;
         Button exitResults;
+        RectTransform waitingPanel;
+        Text waitingRoster, confirmText;
+        Button confirm;
         RectTransform[] resultCards;
         Text[] resultScores;
         Image[] resultAccents;
@@ -88,6 +91,7 @@ namespace SeaweedSlayer
             }
             if (controllerView) InitializeHoldFire();
             InitializeResults();
+            if (controllerView) InitializeWaiting();
             if (joystick != null) joystick.DeadZone = .06f;
             Refresh();
         }
@@ -144,6 +148,30 @@ namespace SeaweedSlayer
                 { "registered", true }, { "color", selectedColor }, { "ready", !session.IsReady }, { "readyRound", session.ReadyRound }
             });
             PlayerPrefs.SetString("ss.name", name); PlayerPrefs.SetInt("ss.color", selectedColor); PlayerPrefs.Save();
+        }
+        void InitializeWaiting()
+        {
+            waitingPanel = CreateResultPanel("Ready waiting room", controller, new Vector2(.04f, .29f), new Vector2(.96f, .70f), new Color32(13, 32, 30, 255));
+            waitingRoster = CreateResultText("Waiting players", 24);
+            waitingRoster.transform.SetParent(waitingPanel, false);
+            SetRegion(waitingRoster.rectTransform, new Vector2(.02f, .27f), new Vector2(.98f, .98f), 2);
+            var go = new GameObject("Confirm start", typeof(RectTransform), typeof(Image), typeof(Button));
+            go.transform.SetParent(waitingPanel, false);
+            SetRegion((RectTransform)go.transform, new Vector2(.02f, .02f), new Vector2(.98f, .25f), 0);
+            go.GetComponent<Image>().color = new Color32(64, 123, 78, 255);
+            confirm = go.GetComponent<Button>(); confirm.onClick.AddListener(session.Confirm);
+            confirmText = CreateResultText("Confirm caption", 26); confirmText.transform.SetParent(go.transform, false);
+            SetRegion(confirmText.rectTransform, Vector2.zero, Vector2.one, 0);
+        }
+        string WaitingPlayers()
+        {
+            if (!session.Connected) return "";
+            var peers = PhotonNetwork.PlayerList.Where(p => p.UserId != session.HostUid && !p.IsInactive &&
+                p.CustomProperties["registered"] is bool registered && registered).ToArray();
+            bool Ready(Photon.Realtime.Player p) => p.CustomProperties["ready"] is bool r && r &&
+                p.CustomProperties["readyRound"] is int round && round == session.ReadyRound;
+            return "ผู้เล่น " + peers.Length + "/" + session.settings.maximumPlayers + " คน / พร้อม " + peers.Count(Ready) + " คน\n" +
+                string.Join("  •  ", peers.Select(p => p.NickName + (Ready(p) ? " ✓" : " (รอ)")));
         }
         void InitializeResults()
         {
@@ -256,9 +284,13 @@ namespace SeaweedSlayer
                 previousPhase = session.Phase;
                 controller.gameObject.SetActive(!session.Connected || session.Phase != "Results");
                 // Profile and gameplay controls occupy separate phases and never overlap.
-                nameInput.gameObject.SetActive(session.CanJoinRound);
+                nameInput.gameObject.SetActive(session.CanJoinRound && !session.IsReady);
                 ready.gameObject.SetActive(session.CanJoinRound);
-                foreach (var b in colors) b.gameObject.SetActive(session.CanJoinRound);
+                foreach (var b in colors) b.gameObject.SetActive(session.CanJoinRound && !session.IsReady);
+                waitingPanel.gameObject.SetActive(session.Connected && session.CanJoinRound && session.IsReady);
+                waitingRoster.text = WaitingPlayers();
+                confirm.interactable = session.Connected && session.IsReady && (session.Phase == "Waiting" || session.Phase == "Countdown");
+                confirmText.text = session.Phase == "Countdown" ? "ยกเลิก Confirm" : "CONFIRM / เริ่มนับ 60 วินาที";
                 profilePreview.gameObject.SetActive(session.CanJoinRound);
                 play.gameObject.SetActive(isPlaying);
                 resultsHint.text = session.HasExitedResults ? "รอผู้เล่นคนอื่นออกจากเกม" : "กดออกจากเกมเมื่อดูคะแนนเสร็จ";
@@ -273,9 +305,12 @@ namespace SeaweedSlayer
                 if (session.Connected)
                 {
                     string seconds = PhotonNetwork.CurrentRoom.CustomProperties["seconds"]?.ToString() ?? "";
-                    status.text = "ห้อง " + session.RoomCode + " / " + (session.Phase == "Lobby" ? "กด Ready เพื่อเริ่มนับถอยหลัง" : session.Phase + "  " + seconds);
-                    profilePreview.text = session.IsReady ? "พร้อมแล้ว รอเพื่อนในห้อง" : "สีผู้เล่นและวงใต้เท้า";
+                    status.text = "ห้อง " + session.RoomCode + " / " + (session.Phase == "Lobby" ? "เลือกชื่อ สี แล้วกด Ready" :
+                        session.Phase == "Waiting" ? "รอผู้เล่น / กด Confirm เมื่อพร้อมเริ่ม" : session.Phase + "  " + seconds);
+                    profilePreview.text = session.IsReady ? (session.Phase == "Countdown" ? "เริ่มเกมใน " + seconds + " วินาที" : "พร้อมแล้ว รอเพื่อนในห้อง") : "สีผู้เล่นและวงใต้เท้า";
                     var props = PhotonNetwork.CurrentRoom.CustomProperties;
+                    if (session.Phase == "Results" && props["seconds"] is int remaining && remaining > 0)
+                        resultsHint.text = "กลับหน้า Title ใน " + remaining + " วินาที";
                     if (session.Phase == "Results" && props["rankNames"] is string[] names && props["rankScores"] is int[] scores && props["rankColors"] is string[] colorValues)
                     {
                         for (int i = 0; i < rankingRows.Length; i++)
@@ -288,12 +323,14 @@ namespace SeaweedSlayer
                 return;
             }
             bool counting = session.Phase == "Countdown";
+            bool waiting = session.Phase == "Waiting";
             lobby.gameObject.SetActive(session.Phase == "Lobby"); results.gameObject.SetActive(session.Phase == "Results");
-            resultsHint.text = "รอผู้เล่นออกจากเกมอีก " + session.ResultsWaiting + " คน / Admin กด Enter กลับ Title";
+            resultsHint.text = (session.ResultsReturning ? "กลับหน้า Title ใน " + Mathf.CeilToInt(session.Remaining) + " วินาที" :
+                "รอผู้เล่นออกจากเกมอีก " + session.ResultsWaiting + " คน") + " / Admin กด Enter กลับ Title";
             qr.gameObject.SetActive(session.Phase == "Lobby");
             // The opening artwork stays hidden; only the QR appears below the countdown.
             countdownQR.sprite = qr.sprite;
-            countdownQR.gameObject.SetActive(counting && countdownQR.sprite != null);
+            countdownQR.gameObject.SetActive((counting || waiting) && countdownQR.sprite != null);
             if (previousPhase == "Countdown" && session.Phase == "Playing")
             {
                 startMessageEnds = Time.unscaledTime + 1;
@@ -301,18 +338,18 @@ namespace SeaweedSlayer
             }
             if (session.Phase != "Playing") startMessageEnds = 0;
             previousPhase = session.Phase;
-            countdown.gameObject.SetActive(counting || (session.Phase == "Playing" && Time.unscaledTime < startMessageEnds));
+            countdown.gameObject.SetActive(waiting || counting || (session.Phase == "Playing" && Time.unscaledTime < startMessageEnds));
             int countdownNumber = counting ? Mathf.CeilToInt(session.Remaining) : -1;
-            countdown.text = counting ? countdownNumber.ToString() : "START!";
+            countdown.text = waiting ? "WAITING" : counting ? countdownNumber.ToString() : "START!";
             // Refresh can run several times per frame; sound only follows a new displayed number.
             if (countdownNumber != lastCountdownNumber && countdownNumber >= 1 && countdownNumber <= 10)
                 session.PlayCountSound();
             lastCountdownNumber = countdownNumber;
             title.text = session.Phase == "Results" ? "ROUND RESULTS" : "SEAWEED SLAYER";
-            timer.text = session.Phase == "Lobby" ? "ROOM " + (session.RoomCode ?? "------") : session.Phase == "Results" ? "TOP 3" : session.Phase == "Countdown" ? "START " + Mathf.CeilToInt(session.Remaining) : Mathf.CeilToInt(session.Remaining) + " SEC";
+            timer.text = session.Phase == "Lobby" ? "ROOM " + (session.RoomCode ?? "------") : waiting ? "WAITING / รอ Confirm" : session.Phase == "Results" ? "TOP 3" : session.Phase == "Countdown" ? "START " + Mathf.CeilToInt(session.Remaining) : Mathf.CeilToInt(session.Remaining) + " SEC";
             if (hint != null) hint.text = string.IsNullOrEmpty(session.JoinUrl) ? "ตั้ง controllerUrl ใน SeaweedSettings" : "ห้อง " + session.RoomCode + " / กด Ready บนมือถือ";
             var ordered = session.Players.Values.OrderByDescending(p => p.Score).ThenBy(p => p.Actor).ToArray();
-            roster.text = "PLAYERS " + ordered.Length + "/" + session.settings.maximumPlayers;
+            roster.text = "PLAYERS " + ordered.Count(p => p.gameObject.activeSelf) + "/" + session.settings.maximumPlayers;
             for (int i = 0; i < 20; i++)
             {
                 bool occupied = i < ordered.Length;
@@ -332,7 +369,8 @@ namespace SeaweedSlayer
         {
             var peer = PhotonNetwork.InRoom ? PhotonNetwork.CurrentRoom.GetPlayer(actor) : null;
             if (peer == null) return "";
-            return peer.IsInactive ? "หลุด" : peer.CustomProperties["ready"] is bool r && r ? "READY" : "รอ";
+            return peer.IsInactive ? "หลุด" : peer.CustomProperties["ready"] is bool r && r &&
+                peer.CustomProperties["readyRound"] is int round && round == session.ReadyRound ? "READY" : "รอ";
         }
         public void ShowQR(string url) { StartCoroutine(LoadQR(url)); }
         IEnumerator LoadQR(string url)
