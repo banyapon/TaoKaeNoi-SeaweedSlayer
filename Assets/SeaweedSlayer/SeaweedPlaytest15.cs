@@ -14,10 +14,10 @@ using UnityEngine.UI;
 
 namespace SeaweedSlayer
 {
-    // Opt-in 15-player match. Starts only when Captures/playtest-15.running exists.
+    // Opt-in full-capacity match (legacy playtest-15 filenames). Starts only when Captures/playtest-15.running exists.
     public sealed class SeaweedPlaytest15 : MonoBehaviour
     {
-        const int Players = 15;
+        const int Players = SeaweedSettings.PlayerLimit;
         const byte MoveCode = 31, ThrowCode = 32;
         static readonly string[] Names = {
             "Mali", "Ploy", "Korn", "Mint", "Bank", "Sky", "Beam", "Fern",

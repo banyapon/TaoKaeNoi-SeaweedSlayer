@@ -7,7 +7,9 @@ namespace SeaweedSlayer
     {
         [Tooltip("Public HTTPS address of the mobile WebGL controller.")]
         public string controllerUrl = "https://taokaenoiarena.vercel.app/Controller";
-        [Range(1, 20)] public int maximumPlayers = 20;
+        public const int PlayerLimit = 10;
+        [Range(1, PlayerLimit)] public int maximumPlayers = PlayerLimit;
+        public int PlayerCapacity => Mathf.Clamp(maximumPlayers, 1, PlayerLimit);
         [Min(10)] public float roundSeconds = 90;
         public Font titleFont, uiFont;
         public Sprite playerOutline, snack, logo;

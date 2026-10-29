@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Linq;
 using Photon.Pun;
@@ -44,6 +44,9 @@ namespace SeaweedSlayer
         RectTransform waitingPanel;
         Text waitingRoster, confirmText;
         Button confirm;
+        RectTransform waitingBackdrop;
+        RectTransform nameStep;
+        bool layoutJoining, layoutReady;
         RectTransform[] resultCards;
         Text[] resultScores;
         Image[] resultAccents;
@@ -88,14 +91,61 @@ namespace SeaweedSlayer
                     countdownQR.raycastTarget = false;
                     countdownQR.gameObject.SetActive(false);
                 }
+                AddQRBorder(qr);
+                AddQRBorder(countdownQR);
+                waitingBackdrop = CreateResultPanel("Waiting backdrop", root, Vector2.zero, Vector2.one, Color.white);
+                waitingBackdrop.SetAsFirstSibling();
+                var art = CreateResultPanel("Waiting artwork", waitingBackdrop, Vector2.zero, Vector2.one, Color.white);
+                var artwork = art.GetComponent<Image>();
+                artwork.sprite = Resources.Load<Sprite>("sprites/End");
+                var fit = art.gameObject.AddComponent<AspectRatioFitter>();
+                fit.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
+                if (artwork.sprite != null) fit.aspectRatio = artwork.sprite.rect.width / artwork.sprite.rect.height;
+                CreateResultPanel("Waiting shade", waitingBackdrop, Vector2.zero, Vector2.one, new Color(0, .08f, .1f, .3f));
+                AddWaitingLogo("TaoKaeNoi", "sprites/logo", new Vector2(.025f, .88f), new Vector2(.14f, .99f));
+                AddWaitingLogo("DPU", "sprites/dpu", new Vector2(.85f, .90f), new Vector2(.98f, .99f));
             }
             if (controllerView) InitializeHoldFire();
             InitializeResults();
-            if (controllerView) InitializeWaiting();
+            if (controllerView)
+            {
+                InitializeWaiting();
+                nameStep = CreateResultPanel("Name instruction", controller, Vector2.zero, Vector2.one, new Color32(255, 221, 87, 255));
+                var caption = CreateResultText("Name instruction caption", 28);
+                caption.transform.SetParent(nameStep, false);
+                caption.text = "1. พิมพ์ชื่อผู้เล่น";
+                caption.color = new Color32(13, 32, 30, 255);
+                SetRegion(caption.rectTransform, Vector2.zero, Vector2.one, 4);
+                readyText.resizeTextForBestFit = true;
+                readyText.resizeTextMaxSize = 30;
+                readyText.resizeTextMinSize = 14;
+            }
             if (joystick != null) joystick.DeadZone = .06f;
             Refresh();
         }
         public void CreateQR() => session.SetControllerUrl(controllerUrlInput.text);
+        void AddWaitingLogo(string name, string resource, Vector2 min, Vector2 max)
+        {
+            var logo = CreateResultPanel(name, waitingBackdrop, min, max, Color.white).GetComponent<Image>();
+            logo.sprite = Resources.Load<Sprite>(resource); logo.preserveAspect = true;
+        }
+        static void AddQRBorder(Image image)
+        {
+            // A separate white backing keeps the QR texture and its square modules intact.
+            var go = new GameObject("QR white border", typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(image.transform, false); go.transform.SetAsFirstSibling();
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.one * -6; rect.offsetMax = Vector2.one * 6;
+            go.GetComponent<Image>().color = Color.white; go.GetComponent<Image>().raycastTarget = false;
+            // Child graphics draw after their parent, so draw the QR on top of the backing.
+            var face = new GameObject("QR face", typeof(RectTransform), typeof(Image));
+            face.transform.SetParent(go.transform, false);
+            var faceRect = (RectTransform)face.transform;
+            faceRect.anchorMin = Vector2.zero; faceRect.anchorMax = Vector2.one;
+            faceRect.offsetMin = Vector2.one * 6; faceRect.offsetMax = Vector2.one * -6;
+            face.GetComponent<Image>().preserveAspect = true; face.GetComponent<Image>().raycastTarget = false;
+        }
         public void PlaySolo() => session.PlaySolo();
         public void Throw() => session.Throw(joystick != null ? joystick.Direction : Vector2.zero);
         void InitializeHoldFire()
@@ -136,7 +186,7 @@ namespace SeaweedSlayer
             if (handle != null) handle.color = session.settings.palette[color];
             throwButton.GetComponent<Image>().color = session.settings.palette[color];
             throwButton.GetComponentInChildren<Text>().color = new Color32(13, 32, 30, 255);
-            profilePreview.color = session.settings.palette[color]; profilePreview.text = "สีผู้เล่นและวงใต้เท้า";
+            profilePreview.color = new Color32(255, 221, 87, 255); profilePreview.text = "2. เลือกสีตัวละคร";
             if (session.Connected && session.CanJoinRound) session.Register(nameInput.text, selectedColor);
         }
         public void CommitReady()
@@ -170,8 +220,8 @@ namespace SeaweedSlayer
                 p.CustomProperties["registered"] is bool registered && registered).ToArray();
             bool Ready(Photon.Realtime.Player p) => p.CustomProperties["ready"] is bool r && r &&
                 p.CustomProperties["readyRound"] is int round && round == session.ReadyRound;
-            return "ผู้เล่น " + peers.Length + "/" + session.settings.maximumPlayers + " คน / พร้อม " + peers.Count(Ready) + " คน\n" +
-                string.Join("  •  ", peers.Select(p => p.NickName + (Ready(p) ? " ✓" : " (รอ)")));
+            return "ผู้เล่น " + peers.Length + "/" + session.settings.PlayerCapacity + " คน / พร้อม " + peers.Count(Ready) + " คน\n" +
+                string.Join("  •  ", peers.Select(p => p.NickName + (session.IsConfirmed(p.ActorNumber) ? " ✓ Confirm" : Ready(p) ? " ✓ Ready" : " (รอ)")));
         }
         void InitializeResults()
         {
@@ -197,7 +247,15 @@ namespace SeaweedSlayer
                 background.sprite = null; background.color = new Color32(13, 32, 30, 255);
                 CreateResultPanel("Results shade", results, Vector2.zero, Vector2.one, new Color(0, .08f, .1f, .3f));
                 heading.SetAsLastSibling();
-                SetRegion((RectTransform)heading, new Vector2(.05f, .84f), new Vector2(.95f, .98f));
+                SetRegion((RectTransform)heading, new Vector2(.22f, .84f), new Vector2(.78f, .98f));
+                var brandLogo = CreateResultPanel("Ranking TaoKaeNoi logo", results,
+                    new Vector2(.02f, .84f), new Vector2(.15f, .98f), Color.white).GetComponent<Image>();
+                brandLogo.sprite = Resources.Load<Sprite>("sprites/logo");
+                brandLogo.preserveAspect = true;
+                var universityLogo = CreateResultPanel("Ranking DPU logo", results,
+                    new Vector2(.80f, .84f), new Vector2(.98f, .98f), Color.white).GetComponent<Image>();
+                universityLogo.sprite = Resources.Load<Sprite>("sprites/dpu");
+                universityLogo.preserveAspect = true;
                 resultCards = new RectTransform[rankingRows.Length];
                 resultScores = new Text[rankingRows.Length];
                 resultAccents = new Image[rankingRows.Length];
@@ -285,32 +343,33 @@ namespace SeaweedSlayer
                 controller.gameObject.SetActive(!session.Connected || session.Phase != "Results");
                 // Profile and gameplay controls occupy separate phases and never overlap.
                 nameInput.gameObject.SetActive(session.CanJoinRound && !session.IsReady);
+                nameStep.gameObject.SetActive(session.CanJoinRound && !session.IsReady);
                 ready.gameObject.SetActive(session.CanJoinRound);
                 foreach (var b in colors) b.gameObject.SetActive(session.CanJoinRound && !session.IsReady);
                 waitingPanel.gameObject.SetActive(session.Connected && session.CanJoinRound && session.IsReady);
                 waitingRoster.text = WaitingPlayers();
                 confirm.interactable = session.Connected && session.IsReady && (session.Phase == "Waiting" || session.Phase == "Countdown");
-                confirmText.text = session.Phase == "Countdown" ? "ยกเลิก Confirm" : "CONFIRM / เริ่มนับ 60 วินาที";
+                confirmText.text = session.Connected && session.IsConfirmed(PhotonNetwork.LocalPlayer.ActorNumber) ? "ยกเลิก Confirm" : "CONFIRM / ครบทุกคนแล้วนับ 10 วินาที";
                 profilePreview.gameObject.SetActive(session.CanJoinRound);
                 play.gameObject.SetActive(isPlaying);
-                resultsHint.text = session.HasExitedResults ? "รอผู้เล่นคนอื่นออกจากเกม" : "กดออกจากเกมเมื่อดูคะแนนเสร็จ";
+                resultsHint.text = "จบรอบแล้ว รอสแกน QR ใหม่บนจอ PC";
                 exitResults.interactable = session.Connected && session.Phase == "Results" && !session.HasExitedResults;
                 bool editable = session.Connected && session.CanJoinRound;
                 ready.interactable = editable; nameInput.interactable = editable && !session.IsReady;
                 foreach (var b in colors) b.interactable = editable && !session.IsReady;
-                readyText.text = session.IsReady ? "ยกเลิก Ready" : "READY";
+                readyText.text = session.IsReady ? "ยกเลิก Ready" : "3. พร้อมแล้วกด Ready";
                 throwButton.interactable = session.Connected && session.Phase == "Playing";
                 if (!throwButton.interactable) firingPointer = null;
                 results.gameObject.SetActive(session.Connected && session.Phase == "Results");
                 if (session.Connected)
                 {
                     string seconds = PhotonNetwork.CurrentRoom.CustomProperties["seconds"]?.ToString() ?? "";
-                    status.text = "ห้อง " + session.RoomCode + " / " + (session.Phase == "Lobby" ? "เลือกชื่อ สี แล้วกด Ready" :
-                        session.Phase == "Waiting" ? "รอผู้เล่น / กด Confirm เมื่อพร้อมเริ่ม" : session.Phase + "  " + seconds);
-                    profilePreview.text = session.IsReady ? (session.Phase == "Countdown" ? "เริ่มเกมใน " + seconds + " วินาที" : "พร้อมแล้ว รอเพื่อนในห้อง") : "สีผู้เล่นและวงใต้เท้า";
+                    status.text = "ห้อง " + session.RoomCode + " / " + (session.Phase == "Lobby" ? "มาเริ่มเล่นเกม Seaweed Slayer" :
+                        session.Phase == "Waiting" ? "รอผู้เล่น " + seconds + " วินาที / รอ Confirm ครบทุกคน" : session.Phase + "  " + seconds);
+                    profilePreview.text = session.IsReady ? (session.Phase == "Countdown" ? "เริ่มเกมใน " + seconds + " วินาที" : "พร้อมแล้ว รอเพื่อนในห้อง") : "2. เลือกสีตัวละคร";
                     var props = PhotonNetwork.CurrentRoom.CustomProperties;
                     if (session.Phase == "Results" && props["seconds"] is int remaining && remaining > 0)
-                        resultsHint.text = "กลับหน้า Title ใน " + remaining + " วินาที";
+                        resultsHint.text = "สิ้นสุด Session ใน " + remaining + " วินาที แล้วสแกน QR ใหม่บนจอ PC";
                     if (session.Phase == "Results" && props["rankNames"] is string[] names && props["rankScores"] is int[] scores && props["rankColors"] is string[] colorValues)
                     {
                         for (int i = 0; i < rankingRows.Length; i++)
@@ -320,6 +379,8 @@ namespace SeaweedSlayer
                         }
                     }
                 }
+                if (!session.IsReady) profilePreview.text = "2. เลือกสีตัวละคร";
+                profilePreview.color = new Color32(255, 221, 87, 255);
                 return;
             }
             bool counting = session.Phase == "Countdown";
@@ -327,9 +388,13 @@ namespace SeaweedSlayer
             lobby.gameObject.SetActive(session.Phase == "Lobby"); results.gameObject.SetActive(session.Phase == "Results");
             resultsHint.text = (session.ResultsReturning ? "กลับหน้า Title ใน " + Mathf.CeilToInt(session.Remaining) + " วินาที" :
                 "รอผู้เล่นออกจากเกมอีก " + session.ResultsWaiting + " คน") + " / Admin กด Enter กลับ Title";
-            qr.gameObject.SetActive(session.Phase == "Lobby");
-            // The opening artwork stays hidden; only the QR appears below the countdown.
+            qr.gameObject.SetActive(session.Phase == "Lobby" && qr.sprite != null);
+            waitingBackdrop.gameObject.SetActive(counting || waiting);
+            var hudLogo = root.Find("Live rank overlay/Logo");
+            if (hudLogo != null) hudLogo.gameObject.SetActive(!counting && !waiting);
             countdownQR.sprite = qr.sprite;
+            qr.transform.Find("QR white border/QR face").GetComponent<Image>().sprite = qr.sprite;
+            countdownQR.transform.Find("QR white border/QR face").GetComponent<Image>().sprite = qr.sprite;
             countdownQR.gameObject.SetActive((counting || waiting) && countdownQR.sprite != null);
             if (previousPhase == "Countdown" && session.Phase == "Playing")
             {
@@ -346,13 +411,13 @@ namespace SeaweedSlayer
                 session.PlayCountSound();
             lastCountdownNumber = countdownNumber;
             title.text = session.Phase == "Results" ? "ROUND RESULTS" : "SEAWEED SLAYER";
-            timer.text = session.Phase == "Lobby" ? "ROOM " + (session.RoomCode ?? "------") : waiting ? "WAITING / รอ Confirm" : session.Phase == "Results" ? "TOP 3" : session.Phase == "Countdown" ? "START " + Mathf.CeilToInt(session.Remaining) : Mathf.CeilToInt(session.Remaining) + " SEC";
+            timer.text = session.Phase == "Lobby" ? "ROOM " + (session.RoomCode ?? "------") : waiting ? "WAIT " + Mathf.CeilToInt(session.Remaining) + " / รอ Confirm" : session.Phase == "Results" ? "TOP 3" : session.Phase == "Countdown" ? "START " + Mathf.CeilToInt(session.Remaining) : Mathf.CeilToInt(session.Remaining) + " SEC";
             if (hint != null) hint.text = string.IsNullOrEmpty(session.JoinUrl) ? "ตั้ง controllerUrl ใน SeaweedSettings" : "ห้อง " + session.RoomCode + " / กด Ready บนมือถือ";
             var ordered = session.Players.Values.OrderByDescending(p => p.Score).ThenBy(p => p.Actor).ToArray();
-            roster.text = "PLAYERS " + ordered.Count(p => p.gameObject.activeSelf) + "/" + session.settings.maximumPlayers;
-            for (int i = 0; i < 20; i++)
+            roster.text = "PLAYERS " + ordered.Count(p => p.gameObject.activeSelf) + "/" + session.settings.PlayerCapacity;
+            for (int i = 0; i < cards.Length; i++)
             {
-                bool occupied = i < ordered.Length;
+                bool occupied = i < ordered.Length && i < session.settings.PlayerCapacity;
                 cards[i].gameObject.SetActive(occupied);
                 rosterRows[i].text = occupied ? ordered[i].DisplayName : "";
                 cardScores[i].text = occupied ? (session.CanJoinRound ? ReadyLabel(ordered[i].Actor) : ordered[i].Score.ToString()) : "";
@@ -372,14 +437,29 @@ namespace SeaweedSlayer
             return peer.IsInactive ? "หลุด" : peer.CustomProperties["ready"] is bool r && r &&
                 peer.CustomProperties["readyRound"] is int round && round == session.ReadyRound ? "READY" : "รอ";
         }
-        public void ShowQR(string url) { StartCoroutine(LoadQR(url)); }
+        public void ShowQR(string url) { StopAllCoroutines(); StartCoroutine(LoadQR(url)); }
+        // The old room's QR must never stay on screen while the next room is being created.
+        public void ClearQR()
+        {
+            StopAllCoroutines();
+            if (qr != null) qr.sprite = null;
+            if (countdownQR != null) countdownQR.sprite = null;
+            if (qrSprite != null) Destroy(qrSprite); if (qrTexture != null) Destroy(qrTexture);
+            qrSprite = null; qrTexture = null;
+        }
         IEnumerator LoadQR(string url)
         {
             var endpoint = "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=" + Uri.EscapeDataString(url);
             using (var request = UnityWebRequestTexture.GetTexture(endpoint))
             {
                 request.timeout = 15; yield return request.SendWebRequest();
-                if (request.result != UnityWebRequest.Result.Success) { session.SetStatus("โหลด QR ไม่สำเร็จ: " + request.error); yield break; }
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    session.SetStatus("โหลด QR ไม่สำเร็จ กำลังลองใหม่: " + request.error);
+                    yield return new WaitForSeconds(3);
+                    if (url == session.JoinUrl) StartCoroutine(LoadQR(url));
+                    yield break;
+                }
                 if (qrSprite != null) Destroy(qrSprite); if (qrTexture != null) Destroy(qrTexture);
                 qrTexture = DownloadHandlerTexture.GetContent(request); qrTexture.filterMode = FilterMode.Point;
                 qrSprite = Sprite.Create(qrTexture, new Rect(0, 0, qrTexture.width, qrTexture.height), Vector2.one * .5f);
@@ -401,8 +481,11 @@ namespace SeaweedSlayer
             var size = root.rect.size;
             var safe = Screen.safeArea;
             if (size.x <= 0 || size.y <= 0 || Screen.width <= 0 || Screen.height <= 0) return;
-            if (size == layoutSize && safe == layoutSafeArea) return;
+            bool joining = session.CanJoinRound;
+            bool isReady = session.IsReady;
+            if (size == layoutSize && safe == layoutSafeArea && joining == layoutJoining && isReady == layoutReady) return;
             layoutSize = size; layoutSafeArea = safe;
+            layoutJoining = joining; layoutReady = isReady;
             var min = new Vector2(safe.xMin / Screen.width, safe.yMin / Screen.height);
             var max = new Vector2(safe.xMax / Screen.width, safe.yMax / Screen.height);
             bool portrait = safe.height > safe.width;
@@ -442,6 +525,37 @@ namespace SeaweedSlayer
                 float top = .55f - (i / columns) * .26f / rows;
                 SetRegion((RectTransform)colors[i].transform,
                     new Vector2(left, top - .26f / rows), new Vector2(left + .92f / columns, top), 2);
+            }
+            if (joining)
+            {
+                // Before play, use the entire safe area for the setup instructions.
+                SetRegion(controller, min, max);
+                if (!isReady)
+                {
+                    if (logoTitle != null) SetRegion(logoTitle,
+                        portrait ? new Vector2(.12f, .83f) : new Vector2(.04f, .80f),
+                        portrait ? new Vector2(.88f, .98f) : new Vector2(.32f, .98f), 2);
+                    SetRegion(status.rectTransform,
+                        portrait ? new Vector2(.04f, .74f) : new Vector2(.35f, .80f), new Vector2(.96f, portrait ? .83f : .98f), 2);
+                    SetRegion(nameStep, new Vector2(.04f, portrait ? .67f : .65f), new Vector2(portrait ? .96f : .46f, .73f), 2);
+                    SetRegion(nameInput.GetComponent<RectTransform>(),
+                        new Vector2(.04f, portrait ? .56f : .43f), new Vector2(portrait ? .96f : .46f, portrait ? .66f : .63f), 2);
+                    SetRegion(profilePreview.rectTransform,
+                        new Vector2(portrait ? .04f : .52f, portrait ? .47f : .65f), new Vector2(.96f, portrait ? .55f : .76f), 2);
+                    SetRegion((RectTransform)ready.transform,
+                        new Vector2(.04f, portrait ? .06f : .15f), new Vector2(portrait ? .96f : .46f, portrait ? .19f : .33f), 2);
+                    float gridLeft = portrait ? .04f : .52f;
+                    float gridWidth = portrait ? .92f : .44f;
+                    float gridTop = portrait ? .47f : .63f;
+                    float gridHeight = portrait ? .24f : .38f;
+                    for (int i = 0; i < colors.Length; i++)
+                    {
+                        float left = gridLeft + i % columns * gridWidth / columns;
+                        float top = gridTop - i / columns * gridHeight / rows;
+                        SetRegion((RectTransform)colors[i].transform,
+                            new Vector2(left, top - gridHeight / rows), new Vector2(left + gridWidth / columns, top), 2);
+                    }
+                }
             }
             // Both controls use one diameter in canvas units, never stretched anchors.
             float diameter = Mathf.Min(230, play.rect.width * .38f, play.rect.height * .62f);

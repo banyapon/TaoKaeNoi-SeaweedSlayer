@@ -165,7 +165,7 @@ namespace SeaweedSlayer.Editor
         {
             var s = AssetDatabase.LoadAssetAtPath<SeaweedSettings>(SettingsPath);
             if (s == null || s.titleFont == null || s.uiFont == null || s.playerOutline == null || s.snack == null || s.logo == null || s.enemyModel == null || s.joystickPrefab == null || s.playerModel == null || s.forestTrees.Any(p => p == null)) throw new Exception("Missing required game assets. Run Prepare Game Scene.");
-            if (s.maximumPlayers < 1 || s.maximumPlayers > 20) throw new Exception("Player capacity must be 1..20.");
+            if (s.maximumPlayers < 1 || s.maximumPlayers > SeaweedSettings.PlayerLimit) throw new Exception("Player capacity must be 1..10.");
             var clips = AnimationUtility.GetAnimationClips(s.playerModel);
             if (s.playerModel.GetComponent<Animation>() == null || new[] { "Idle_Cute", "Run_Cute", "Throw_Left" }.Any(name => !clips.Any(c => c.name == name && c.legacy)))
                 throw new Exception("Missing player animations. Run Upgrade Player Animations.");

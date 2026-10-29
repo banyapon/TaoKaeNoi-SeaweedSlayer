@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -90,7 +90,7 @@ namespace SeaweedSlayer
             yield return new WaitUntil(() => session != null && session.Connected);
             CheckCamera();
             CheckMobilePhases();
-            Check(PhotonNetwork.CurrentRoom.MaxPlayers == 21, "20 controllers plus PC host capacity");
+            Check(PhotonNetwork.CurrentRoom.MaxPlayers == 11, "10 controllers plus PC host capacity");
             // Two actual network peers exercise the protocol; the room capacity is independently asserted.
             for (int i = 0; i < 2; i++)
             {
@@ -107,35 +107,33 @@ namespace SeaweedSlayer
             Check(session.Phase == "Lobby", "join alone does not hide QR/start");
             clients[0].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", true }, { "readyRound", session.ReadyRound } });
             yield return new WaitUntil(() => session.Phase == "Waiting");
-            Check(session.Remaining == 0, "Ready opens an untimed waiting room");
+            Check(session.Remaining == 0, "Ready waits for confirmation without a gathering timer");
             CheckUIPhase("Waiting");
-            yield return new WaitForSeconds(11);
-            Check(session.Phase == "Waiting" && session.Remaining == 0, "waiting does not auto-start after the old timeout");
             Confirm(clients[0], true);
             yield return new WaitUntil(() => session.Phase == "Countdown");
-            Check(session.Remaining > 59 && session.Remaining <= 60, "Confirm starts sixty-second countdown");
+            Check(session.Remaining > 9 && session.Remaining <= 10, "all confirmed starts ten-second countdown");
             Check(PhotonNetwork.CurrentRoom.IsOpen, "room stays open during countdown");
-            float originalStartTime = Time.time + session.Remaining;
-            yield return new WaitForSeconds(1);
-            clients[1].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "registered", true }, { "color", 2 }, { "ready", true }, { "readyRound", session.ReadyRound } });
-            yield return new WaitUntil(() => session.Players.Count == 2);
-            Check(session.Phase == "Countdown" && Mathf.Abs(Time.time + session.Remaining - originalStartTime) < .1f, "late registration joins without resetting countdown");
-            clients[1].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", false } });
-            yield return new WaitForSeconds(.5f);
-            Check(session.Phase == "Countdown", "one unready peer does not cancel another ready peer");
             Confirm(clients[0], false);
             yield return new WaitUntil(() => session.Phase == "Waiting");
-            Check(session.Remaining == 0, "cancel Confirm clears countdown and retains Ready");
+            Check(session.Remaining == 0 && !session.IsConfirmed(clients[0].LocalPlayer.ActorNumber), "cancel restarts waiting and clears confirmation");
+            clients[1].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "registered", true }, { "color", 2 }, { "ready", true }, { "readyRound", session.ReadyRound } });
+            yield return new WaitUntil(() => session.Players.Count == 2);
             Confirm(clients[0], true);
+            yield return new WaitForSeconds(1);
+            Check(session.Phase == "Waiting", "one confirmation cannot start two players");
+            Confirm(clients[1], true);
             yield return new WaitUntil(() => session.Phase == "Countdown");
-            Check(session.Remaining > 59, "reconfirm starts a fresh sixty seconds");
+            clients[1].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", false } });
+            yield return new WaitUntil(() => session.Phase == "Waiting");
+            Check(!session.IsConfirmed(clients[0].LocalPlayer.ActorNumber), "cancel Ready stops countdown and clears confirmations");
             clients[0].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", false } });
             yield return new WaitUntil(() => session.Phase == "Lobby");
             Check(PhotonNetwork.CurrentRoom.IsOpen, "all peers cancel Ready returns to open lobby");
-            clients[0].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", true }, { "readyRound", session.ReadyRound } });
-            clients[1].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", true }, { "readyRound", session.ReadyRound } });
+            foreach (var client in clients)
+                client.LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", true }, { "readyRound", session.ReadyRound } });
             yield return new WaitUntil(() => session.Phase == "Waiting");
-            Confirm(clients[1], true);
+            yield return new WaitForSeconds(.5f);
+            foreach (var client in clients) Confirm(client, true);
             yield return new WaitUntil(() => session.Phase == "Playing");
             Check(!PhotonNetwork.CurrentRoom.IsOpen, "lock joining during round");
             var a = session.Players[clients[0].LocalPlayer.ActorNumber];
@@ -213,31 +211,34 @@ namespace SeaweedSlayer
             typeof(SeaweedSession).GetField("phaseEnds", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).SetValue(session, Time.time + .1f);
             yield return new WaitUntil(() => session.Phase == "Results");
             Check(PhotonNetwork.CurrentRoom.Name == session.RoomCode, "results keep the same room");
+            string resultsRoom = session.RoomCode;
             CheckUIPhase("Results");
-            yield return new WaitForSeconds(11);
+            Check(session.ResultsReturning && session.Remaining > 29 && session.Remaining <= 30, "results start the thirty-second timer without any exit");
+            float resultsEnd = Time.unscaledTime + session.Remaining;
+            yield return new WaitForSecondsRealtime(11);
             Check(session.Phase == "Results", "results remain visible after the old ten-second timeout");
             clients[0].OpRaiseEvent(33, session.ReadyRound, new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient }, SendOptions.SendReliable);
             yield return new WaitForSeconds(.5f);
-            Check(session.Phase == "Results" && session.ResultsWaiting == 1 && session.ResultsReturning && session.Remaining > 29 && session.Remaining <= 30,
-                "first exit starts thirty-second title countdown");
-            float resultsEnd = Time.time + session.Remaining;
+            Check(session.Phase == "Results" && session.ResultsWaiting == 1 && session.ResultsReturning && Mathf.Abs(Time.unscaledTime + session.Remaining - resultsEnd) < .1f,
+                "first exit preserves the timer started at game end");
             clients[0].OpRaiseEvent(33, session.ReadyRound, new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient }, SendOptions.SendReliable);
             yield return new WaitForSeconds(.3f);
-            Check(session.ResultsWaiting == 1 && Mathf.Abs(Time.time + session.Remaining - resultsEnd) < .1f, "duplicate exit does not count twice or restart timer");
+            Check(session.ResultsWaiting == 1 && Mathf.Abs(Time.unscaledTime + session.Remaining - resultsEnd) < .1f, "duplicate exit does not count twice or restart timer");
             yield return new WaitUntil(() => session.Phase == "Lobby");
-            Check(Time.time >= resultsEnd, "results return automatically while second mobile stays on results");
+            Check(Time.unscaledTime >= resultsEnd, "results return automatically while second mobile stays on results");
             CheckUIPhase("Lobby");
-            yield return new WaitForSeconds(.5f);
-            Check(PhotonNetwork.CurrentRoom.IsOpen && clients.All(c => !(c.LocalPlayer.CustomProperties["ready"] is bool r) || !r), "next round reopens room and resets Ready");
+            yield return JoinNextRoom(resultsRoom);
+            Check(PhotonNetwork.CurrentRoom.IsOpen && clients.All(c => !(c.LocalPlayer.CustomProperties["ready"] is bool r) || !r), "next round opens a new room with Ready reset");
             for (int round = 2; round <= 3; round++)
             {
+                string roundRoom = session.RoomCode;
                 foreach (var client in clients) client.LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "ready", true }, { "readyRound", session.ReadyRound } });
                 yield return new WaitUntil(() => session.Phase == "Waiting"); CheckUIPhase("Waiting");
                 // A request from the previous round must not start this round.
                 clients[0].OpRaiseEvent(34, new object[] { session.ReadyRound - 1, true }, new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient }, SendOptions.SendReliable);
                 yield return new WaitForSeconds(.5f);
                 Check(session.Phase == "Waiting", "stale Confirm is ignored");
-                Confirm(clients[0], true);
+                foreach (var client in clients) Confirm(client, true);
                 yield return new WaitUntil(() => session.Phase == "Countdown"); CheckUIPhase("Countdown");
                 typeof(SeaweedSession).GetField("phaseEnds", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).SetValue(session, Time.time + .1f);
                 yield return new WaitUntil(() => session.Phase == "Playing"); CheckUIPhase("Playing");
@@ -255,16 +256,31 @@ namespace SeaweedSlayer
                 {
                     foreach (var client in clients)
                         client.OpRaiseEvent(33, session.ReadyRound, new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient }, SendOptions.SendReliable);
+                    yield return new WaitForSecondsRealtime(.5f);
+                    Check(session.Phase == "Results" && session.ResultsReturning, "all exits keep results visible for the full thirty seconds");
                     yield return new WaitUntil(() => session.Phase == "Lobby");
-                    Check(!session.ResultsReturning && session.Remaining == 0, "all players exit immediately without leaving a pending timer");
+                    Check(!session.ResultsReturning && session.Remaining == 0, "results timeout clears the timer");
                 }
                 CheckUIPhase("Lobby");
                 yield return new WaitForSeconds(.5f);
                 Check(session.Phase == "Lobby", "admin return stays on title without old Ready restarting countdown");
+                if (round < 3) yield return JoinNextRoom(roundRoom);
             }
             Debug.Log("SEAWEED_NETWORK_SMOKE_SUCCESS"); finished = true;
             foreach (var c in clients) c.Disconnect(); PhotonNetwork.Disconnect();
             yield return new WaitForSeconds(.5f); Application.Quit(0);
+        }
+        // Results always end in a fresh room, so the peers rescan (leave and join the new code).
+        IEnumerator JoinNextRoom(string previousRoom)
+        {
+            yield return new WaitUntil(() => session.Connected && !string.IsNullOrEmpty(session.RoomCode) && session.RoomCode != previousRoom);
+            Check(session.Players.Count == 0 && !string.IsNullOrEmpty(session.JoinUrl) && session.JoinUrl.Contains("room=" + session.RoomCode), "new room has an empty roster and a fresh QR");
+            foreach (var c in clients) if (c.InRoom) c.OpLeaveRoom(false);
+            joining.Clear();
+            yield return new WaitUntil(() => clients.All(c => c.InRoom && c.CurrentRoom.Name == session.RoomCode));
+            for (int i = 0; i < clients.Count; i++)
+                clients[i].LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { "registered", true }, { "color", i + 1 }, { "ready", false } });
+            yield return new WaitUntil(() => session.Players.Count == clients.Count);
         }
         static int CountAuthoredWorld(SeaweedArena arena) => arena.GetComponentsInChildren<Transform>(true)
             .Count(t => t.GetComponentInParent<SeaweedFeedback>() == null && t.name != "Ground aim arrow");

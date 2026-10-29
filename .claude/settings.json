@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($log = \"$env:LOCALAPPDATA\\\\Unity\\\\Editor\\\\Editor.log\"; if \\(-not \\(Test-Path $log\\)\\) { $log = \"D:\\\\AppDataRelocated\\\\Local\\\\Unity\\\\Editor\\\\Editor.log\" }; $log; Select-String -Path $log -Pattern \"Exception|error CS|Error\" | Select-Object -Last 40 | ForEach-Object { $_.Line })",
+      "PowerShell($log = \"$env:LOCALAPPDATA\\\\Unity\\\\Editor\\\\Editor.log\"; \\(Get-Item $log\\).LastWriteTime; Get-Content $log -Tail 120)",
+      "PowerShell($c = Get-Content Assets/Scenes/Game.unity; $c[76125..76150] -join \"`n\"; \"\"; Select-String -Path Assets/Scenes/Game.unity -Pattern \"editorController|editorRoom\" | % { \"$\\($_.LineNumber\\): $\\($_.Line\\)\" })",
+      "Read(//d/GitHub/Unity/TaoKaeNoi-SeaweedSlayer/**)"
+    ]
+  }
+}

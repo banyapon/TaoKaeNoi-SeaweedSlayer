@@ -18,8 +18,8 @@ Rooms use **Photon PUN** in the `asia` region, with game version `seaweed-slayer
 
 1. The arena opens a room and shows a QR code for the controller URL.
 2. Each phone scans it, chooses a name and a color, then taps **Ready**.
-3. When everyone in the room is ready, the QR hides and a 3-second countdown starts. Cancelling Ready during the countdown returns the room to the lobby.
-4. A round lasts 90 seconds (editable in Settings). Results stay up for 10 seconds, then the same room returns to the lobby for another Ready check.
+3. Ready opens the waiting screen. As soon as every registered, connected player is Ready and has tapped Confirm, a 10-second countdown starts with no additional waiting period. Cancelling Confirm or Ready stops the countdown, clears confirmations, and returns to waiting for confirmation. If nobody is Ready, the room returns to the lobby. The waiting screen uses End.jpg, corner logos, and a QR with a small white border.
+4. A round lasts 90 seconds (editable in Settings). When the results close, the arena leaves the room and opens a new one with a new room code and QR code. Phones from the finished round see “scan the new QR” and must scan again. A fresh room each round keeps old connections and room state from carrying over.
 
 | Action | Result |
 | --- | --- |
@@ -29,9 +29,10 @@ Rooms use **Photon PUN** in the `asia` region, with game version `seaweed-slayer
 | Get hit | The character flashes and cannot move, throw, or collect for 2 seconds. Extra hits during the stun do not extend it. |
 | Touch an enemy | The player is stunned. |
 
-- 1–20 players. The Photon room has 21 slots because the arena PC uses one. The cap is set in `Assets/SeaweedSlayer/SeaweedSettings.asset`.
+- 1–10 players. The Photon room has 11 slots because the arena PC uses one. The cap is set in `Assets/SeaweedSlayer/SeaweedSettings.asset`.
+- Results stay visible for 30 seconds from the end of the game, even if everyone presses Exit. Then mobile sessions end and the PC returns to Title with a fresh room and QR code. Admin Enter can still return early.
 - Scores sort from highest to lowest. Ties keep a stable order by Photon actor number.
-- The live rank card shows 1st, 2nd, 3rd, and 4th–20th, and only lists players who are in the room.
+- The live rank card shows 1st, 2nd, 3rd, and 4th–10th, and only lists players who are in the room.
 - Trees are shuffled at the start of each round. A center path and the border stay walkable. Water and fences block movement.
 - The camera is a straight orthographic view.
 - With no phones joined, the PC can press **เล่นคนเดียว (WASD + SPACE)** and use WASD or the arrow keys to move, and Space to throw.
@@ -82,7 +83,7 @@ The Windows player can run a scripted Photon room with two simulated controllers
 ./Builds/Windows/SeaweedSlayer.exe -batchmode -nographics -seaweed-smoke -logFile ./Builds/network-smoke.log
 ```
 
-Look for `SEAWEED_NETWORK_SMOKE_SUCCESS`. The smoke test covers the PC slot, Ready, a cancelled countdown, movement, input timeout, throws and the 2-second stun, snack and enemy scoring, the enemy cap, rejoin with the same UID, and the results-to-lobby loop. It does not load 20 real phones.
+Look for `SEAWEED_NETWORK_SMOKE_SUCCESS`. The smoke test covers the PC slot, Ready, a cancelled countdown, movement, input timeout, throws and the 2-second stun, snack and enemy scoring, the enemy cap, rejoin with the same UID, and the results-to-lobby loop, including the new room and QR code after each round. It does not load 10 real phones.
 
 `-seaweed-preview` writes `Preview.png` next to the executable and then quits. Test flags do nothing in a normal launch.
 

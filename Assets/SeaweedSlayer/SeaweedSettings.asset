@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: SeaweedSettings
   m_EditorClassIdentifier: Assembly-CSharp::SeaweedSlayer.SeaweedSettings
   controllerUrl: https://taokaenoiarena.vercel.app/Controller
-  maximumPlayers: 20
+  maximumPlayers: 10
   roundSeconds: 90
   titleFont: {fileID: 12800000, guid: 83de4b9c173662e43a2c781b0b21846a, type: 3}
   uiFont: {fileID: 12800000, guid: 83eb0ebb0cb76304abcee8bf2f5e4692, type: 3}
