@@ -176,6 +176,11 @@ namespace SeaweedSlayer.Editor
         public static void BuildWindows()
         {
             Validate();
+            PlayerSettings.fullScreenMode = FullScreenMode.FullScreenWindow;
+            PlayerSettings.defaultIsNativeResolution = true;
+            PlayerSettings.defaultScreenWidth = 1920;
+            PlayerSettings.defaultScreenHeight = 1080;
+            AssetDatabase.SaveAssets();
             Build(BuildTarget.StandaloneWindows64, "Builds/Windows/SeaweedSlayer.exe");
         }
         [MenuItem("Seaweed Slayer/Build Mobile WebGL Controller")]

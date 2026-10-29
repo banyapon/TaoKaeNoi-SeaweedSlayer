@@ -53,6 +53,11 @@ namespace SeaweedSlayer
         void Start()
         {
             Application.runInBackground = true;
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+            // Start fullscreen even when an older installation saved a windowed mode.
+            if (!Application.isBatchMode)
+                Screen.SetResolution(Screen.currentResolution.width, Screen.currentResolution.height, FullScreenMode.FullScreenWindow);
+#endif
             IsController = editorController;
 #if SEAWEED_CONTROLLER
             IsController = true;
